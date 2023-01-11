@@ -23,7 +23,7 @@ struct Cli {
     input: PathBuf,
 
     #[arg()]
-    output: PathBuf
+    output: PathBuf,
 }
 
 const BUF_SIZE: usize = 1024 * 1024 * 32;
@@ -60,6 +60,9 @@ fn main() -> anyhow::Result<()> {
                         let result = hasher.finalize_reset();
                         let file_name = format!("{result:X}");
                         let output_path = args.output.join(&file_name[0..4]).join(file_name);
+                        if output_path.exists() {
+                            return;
+                        }
                         fs::create_dir_all(output_path.parent().unwrap()).unwrap();
                         fs::write(output_path, buf).unwrap();
                     }
@@ -70,26 +73,34 @@ fn main() -> anyhow::Result<()> {
                     match zip::ZipArchive::new(zip_file) {
                         Ok(mut archive) => (0..archive.len())
                             .map(|i| {
-                                let mut file = archive.by_index(i).unwrap();
-                                if !file.is_file() || file.size() == 0 {
-                                    return None;
+                                let mut entry = archive.by_index(i).unwrap();
+                                if !entry.is_file() || entry.size() == 0 {
+                                    return;
                                 }
-                                io::copy(&mut file, &mut hasher).unwrap();
+
+                                let mut buf = Vec::with_capacity(entry.size() as usize);
+                                entry.read_to_end(&mut buf).unwrap();
+                                let content_type = inspect(&buf);
+
+                                if content_type == ContentType::BINARY {
+                                    return;
+                                }
+                                hasher.update(&buf);
                                 let result = hasher.finalize_reset();
-                                let extension = match file.enclosed_name() {
-                                    Some(v) => {
-                                        v.extension().and_then(|v| v.to_str()).unwrap_or("None")
-                                    }
-                                    None => "None",
-                                };
-                                Some(format!("{result:X} {} {}", file.size(), extension))
+                                let file_name = format!("{result:X}");
+                                let output_path = args.output.join(&file_name[0..4]).join(file_name);
+                                if output_path.exists() {
+                                    return;
+                                }
+
+                                fs::create_dir_all(output_path.parent().unwrap()).unwrap();
+                                fs::write(output_path, buf).unwrap();
                             })
                             .collect(),
                         Err(_) => {}
                     }
                 }
                 _ => panic!("Unhandled extension {ext}"),
-                _ => {},
             },
             None => {}
         };
