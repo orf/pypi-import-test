@@ -4,17 +4,17 @@ use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::fs::{DirEntry, File};
 use std::io::{BufReader, Read};
-use std::io::Write;
-use std::{env, fs, io};
-use std::time::Duration;
+
+use std::{fs};
+
 use tar::Archive;
 use indicatif::{ParallelProgressIterator, ProgressStyle};
 use indicatif::ProgressBar;
 use content_inspector::{ContentType, inspect};
 
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 
-use clap::{Parser, Subcommand};
+use clap::{Parser};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -66,7 +66,7 @@ fn main() -> anyhow::Result<()> {
                         fs::create_dir_all(output_path.parent().unwrap()).unwrap();
                         fs::write(output_path, buf).unwrap();
                     }
-                }
+                },
                 "egg" | "zip" | "whl" => {
                     let zip_file = BufReader::with_capacity(BUF_SIZE, File::open(path).unwrap());
                     let mut hasher = Sha256::new();
