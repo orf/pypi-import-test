@@ -131,7 +131,7 @@ fn run(
                 id: hash,
                 flags: 0,
                 flags_extended: 0,
-                path: format!("package/{name}").into(),
+                path: format!("package/{name}").replace("/./", "/").into(),
             };
             index.add_frombuffer(&entry, &content)?;
 
