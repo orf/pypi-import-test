@@ -17,7 +17,7 @@ pub enum PackageArchive {
 impl PackageArchive {
     pub fn new(extension: &str, reader: Response) -> Option<Self> {
         match extension {
-            "egg" | "zip" | "whl" => Some(PackageArchive::Zip(BufReader::with_capacity(
+            "egg" | "zip" | "whl" | "exe" => Some(PackageArchive::Zip(BufReader::with_capacity(
                 1024 * 1024 * 12,
                 reader,
             ))),
@@ -55,24 +55,22 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            PackageEnumIterator::Zip(v) => {
-                loop {
-                    return match read_zipfile_from_stream(v) {
-                        Ok(z) => match z {
-                            None => None,
-                            Some(z) => {
-                                if !z.is_file() {
-                                    continue;
-                                }
-                                let name = z.name().to_string();
-                                let content = inspect_content(z);
-                                Some(Ok((name, content)))
+            PackageEnumIterator::Zip(v) => loop {
+                return match read_zipfile_from_stream(v) {
+                    Ok(z) => match z {
+                        None => None,
+                        Some(z) => {
+                            if !z.is_file() {
+                                continue;
                             }
-                        },
-                        Err(e) => Some(Err(e.into())),
-                    };
-                }
-            }
+                            let name = z.name().to_string();
+                            let content = inspect_content(z);
+                            Some(Ok((name, content)))
+                        }
+                    },
+                    Err(e) => Some(Err(e.into())),
+                };
+            },
             PackageEnumIterator::TarGz(t) => match t.flatten().find(|v| v.size() != 0) {
                 None => None,
                 Some(v) => {

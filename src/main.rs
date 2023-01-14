@@ -20,6 +20,9 @@ struct Cli {
     #[arg(long, short)]
     repo: PathBuf,
 
+    #[arg(long, short)]
+    dry_run: bool,
+
     #[command(subcommand)]
     run_type: RunType,
 }
@@ -52,7 +55,7 @@ fn main() -> anyhow::Result<()> {
     match args.run_type {
         RunType::FromArgs { name, version, url } => {
             let error_ctx = format!("Name: {}, version: {}, url: {}", name, version, url);
-            run(args.repo, name, version, url).context(error_ctx)?
+            run(args.repo, name, version, url, args.dry_run).context(error_ctx)?
         }
         RunType::FromStdin {} => {
             let stdin = io::stdin();
@@ -61,13 +64,26 @@ fn main() -> anyhow::Result<()> {
                 "Name: {}, version: {}, url: {}",
                 input.name, input.version, input.url
             );
-            run(args.repo, input.name, input.version, input.url).context(error_ctx)?
+            run(
+                args.repo,
+                input.name,
+                input.version,
+                input.url,
+                args.dry_run,
+            )
+            .context(error_ctx)?
         }
     }
     Ok(())
 }
 
-fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result<()> {
+fn run(
+    repo: PathBuf,
+    name: String,
+    version: String,
+    url: Url,
+    dry_run: bool,
+) -> anyhow::Result<()> {
     let package_filename = url.path_segments().unwrap().last().unwrap();
 
     let package_extension = package_filename.rsplit('.').next().unwrap();
@@ -85,7 +101,8 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     let mut archive = match PackageArchive::new(package_extension, download_response) {
         None => {
             // Skip unknown extensions?
-            return Ok(())
+            println!("Unknown extension {package_extension}");
+            return Ok(());
         }
         Some(v) => v,
     };
@@ -99,6 +116,9 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
         }
         if let FileContent::Text(content) = content {
             let hash = Oid::hash_object(ObjectType::Blob, &content)?;
+            if dry_run {
+                println!("{name}")
+            }
             let entry = IndexEntry {
                 ctime: IndexTime::new(0, 0),
                 mtime: IndexTime::new(0, 0),
@@ -177,11 +197,13 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     });
 
     push_options.remote_callbacks(callbacks);
-    remote.push(
-        &[format!(
-            "+refs/heads/{new_branch_name}:refs/heads/{new_branch_name}"
-        )],
-        Some(&mut push_options),
-    )?;
+    if !dry_run {
+        remote.push(
+            &[format!(
+                "+refs/heads/{new_branch_name}:refs/heads/{new_branch_name}"
+            )],
+            Some(&mut push_options),
+        )?;
+    }
     Ok(())
 }
