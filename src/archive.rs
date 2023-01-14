@@ -1,0 +1,87 @@
+use std::io;
+use std::io::{BufReader, Read};
+
+use content_inspector::{inspect, ContentType};
+use flate2::read::GzDecoder;
+use reqwest::blocking::Response;
+use tar::{Archive, Entries};
+use zip::read::read_zipfile_from_stream;
+
+pub enum PackageArchive {
+    Zip(BufReader<Response>),
+    TarGz(Archive<GzDecoder<Response>>),
+}
+
+impl PackageArchive {
+    pub fn new(extension: &str, reader: Response) -> Self {
+        match extension {
+            "egg" | "zip" | "whl" => {
+                PackageArchive::Zip(BufReader::with_capacity(1024 * 1024 * 12, reader))
+            }
+            "gz" => {
+                let tar = GzDecoder::new(reader);
+                let archive = Archive::new(tar);
+                PackageArchive::TarGz(archive)
+            }
+            _ => unimplemented!("Unhandled extension {}", extension),
+        }
+    }
+
+    pub fn all_items(&mut self) -> PackageEnumIterator {
+        match self {
+            PackageArchive::Zip(z) => PackageEnumIterator::Zip(z),
+            PackageArchive::TarGz(t) => PackageEnumIterator::TarGz(t.entries().unwrap()),
+        }
+    }
+}
+
+pub enum PackageEnumIterator<'a> {
+    Zip(&'a mut BufReader<Response>),
+    TarGz(Entries<'a, GzDecoder<Response>>),
+}
+
+impl<'a> Iterator for PackageEnumIterator<'a> {
+    type Item = anyhow::Result<(String, FileContent)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            PackageEnumIterator::Zip(v) => match read_zipfile_from_stream(v) {
+                Ok(z) => match z {
+                    None => None,
+                    Some(z) => {
+                        let name = z.name().to_string();
+                        let content = inspect_content(z);
+                        Some(Ok((name, content)))
+                    }
+                },
+                Err(e) => Some(Err(e.into())),
+            },
+            PackageEnumIterator::TarGz(t) => match t.flatten().find(|v| v.size() != 0) {
+                None => None,
+                Some(v) => {
+                    let name = v.path().unwrap().to_str().unwrap().to_string();
+                    let content = inspect_content(v);
+                    Some(Ok((name, content)))
+                }
+            },
+        }
+    }
+}
+
+pub enum FileContent {
+    Binary,
+    Text(Vec<u8>),
+}
+
+#[inline(always)]
+fn inspect_content<R: Read>(mut item: R) -> FileContent {
+    let mut first = [0; 1024];
+    let n = item.read(&mut first[..]).unwrap();
+    let content_type = inspect(&first[..n]);
+    if content_type == ContentType::BINARY {
+        return FileContent::Binary;
+    }
+    let mut read_vec = first[..n].to_vec();
+    io::copy(&mut item, &mut read_vec).unwrap();
+    FileContent::Text(read_vec)
+}

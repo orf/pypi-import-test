@@ -9,12 +9,15 @@ edition = "2021"
 anyhow = "1.0.68"
 clap = { version = "4.0.32", features = ["derive"] }
 content_inspector = "0.2.4"
-indicatif = { version = "0.17.2", features = ["rayon"] }
-rand = "0.8.5"
-rayon = "1.6.1"
 tar = "0.4.38"
 zip = { version = "0.6.3", features = ["deflate-zlib"] }
 flate2 = { version = "1.0.17", features = ["zlib-ng"], default-features = false }
+git2 = "0.16.0"
+url = "2.3.1"
+tempdir = "0.3.7"
+fs_extra = "1.2.0"
+reqwest = {version="0.11.13", features=["blocking"]}
+shellexpand = "3.0.0"
 
 [profile.release]
 codegen-units = 1
