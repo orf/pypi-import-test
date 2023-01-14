@@ -55,17 +55,24 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            PackageEnumIterator::Zip(v) => match read_zipfile_from_stream(v) {
-                Ok(z) => match z {
-                    None => None,
-                    Some(z) => {
-                        let name = z.name().to_string();
-                        let content = inspect_content(z);
-                        Some(Ok((name, content)))
-                    }
-                },
-                Err(e) => Some(Err(e.into())),
-            },
+            PackageEnumIterator::Zip(v) => {
+                loop {
+                    return match read_zipfile_from_stream(v) {
+                        Ok(z) => match z {
+                            None => None,
+                            Some(z) => {
+                                if !z.is_file() {
+                                    continue;
+                                }
+                                let name = z.name().to_string();
+                                let content = inspect_content(z);
+                                Some(Ok((name, content)))
+                            }
+                        },
+                        Err(e) => Some(Err(e.into())),
+                    };
+                }
+            }
             PackageEnumIterator::TarGz(t) => match t.flatten().find(|v| v.size() != 0) {
                 None => None,
                 Some(v) => {
