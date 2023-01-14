@@ -2,6 +2,7 @@ mod archive;
 
 use crate::archive::{FileContent, PackageArchive};
 
+use anyhow::Context;
 use clap::Parser;
 use fs_extra::dir::CopyOptions;
 use git2::{
@@ -49,11 +50,18 @@ fn main() -> anyhow::Result<()> {
     let args: Cli = Cli::parse();
 
     match args.run_type {
-        RunType::FromArgs { name, version, url } => run(args.repo, name, version, url)?,
+        RunType::FromArgs { name, version, url } => {
+            let error_ctx = format!("Name: {}, version: {}, url: {}", name, version, url);
+            run(args.repo, name, version, url).context(error_ctx)?
+        }
         RunType::FromStdin {} => {
             let stdin = io::stdin();
             let input: JsonInput = serde_json::from_reader(stdin).unwrap();
-            run(args.repo, input.name, input.version, input.url)?
+            let error_ctx = format!(
+                "Name: {}, version: {}, url: {}",
+                input.name, input.version, input.url
+            );
+            run(args.repo, input.name, input.version, input.url).context(error_ctx)?
         }
     }
     Ok(())
@@ -67,7 +75,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     // Copy our git directory to a temporary directory
     let tmp_dir = TempDir::new("git-import")?;
     let options = CopyOptions::new();
-    fs_extra::dir::copy(repo, &tmp_dir, &options).unwrap();
+    fs_extra::dir::copy(repo, &tmp_dir, &options)?;
     // Create the repo and grab the main branch, and the index
     let repo = Repository::open(tmp_dir.path().join("pypi-code-import"))?;
     let main = repo.revparse_single("main")?;
@@ -89,7 +97,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
             continue;
         }
         if let FileContent::Text(content) = content {
-            let hash = Oid::hash_object(ObjectType::Blob, &content).unwrap();
+            let hash = Oid::hash_object(ObjectType::Blob, &content)?;
             let entry = IndexEntry {
                 ctime: IndexTime::new(0, 0),
                 mtime: IndexTime::new(0, 0),
@@ -104,7 +112,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
                 flags_extended: 0,
                 path: format!("package/{name}").into(),
             };
-            index.add_frombuffer(&entry, &content).unwrap();
+            index.add_frombuffer(&entry, &content)?;
 
             has_any_text_files = true;
         }
@@ -115,25 +123,23 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
         return Ok(());
     }
 
-    let oid = index.write_tree().unwrap();
-    let signature = Signature::now("Tom Forbes", "tom@tomforb.es").unwrap();
+    let oid = index.write_tree()?;
+    let signature = Signature::now("Tom Forbes", "tom@tomforb.es")?;
     let parent_commit = main.as_commit().unwrap();
-    let tree = repo.find_tree(oid).unwrap();
-    let commit_oid = repo
-        .commit(
-            Some("HEAD"),
-            &signature,
-            &signature,
-            format!("{name} {version}").as_str(),
-            &tree,
-            &[parent_commit],
-        )
-        .unwrap();
+    let tree = repo.find_tree(oid)?;
+    let commit_oid = repo.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        format!("{name} {version}").as_str(),
+        &tree,
+        &[parent_commit],
+    )?;
     let x = repo.find_commit(commit_oid)?;
 
     let new_branch_name = format!("{}/{}/{}", &name, &version, package_filename);
 
-    repo.branch(&new_branch_name, &x, true).unwrap();
+    repo.branch(&new_branch_name, &x, true)?;
 
     fn create_callbacks<'a>() -> RemoteCallbacks<'a> {
         let mut callbacks = RemoteCallbacks::new();
@@ -150,16 +156,13 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
         callbacks
     }
 
-    let mut remote = repo.find_remote("origin").unwrap();
+    let mut remote = repo.find_remote("origin")?;
 
-    remote
-        .connect_auth(Direction::Push, Some(create_callbacks()), None)
-        .unwrap();
+    remote.connect_auth(Direction::Push, Some(create_callbacks()), None)?;
     repo.remote_add_push(
         "origin",
         &format!("refs/heads/{new_branch_name}:refs/heads/{new_branch_name}"),
-    )
-    .unwrap();
+    )?;
 
     let mut push_options = PushOptions::default();
     let mut callbacks = create_callbacks();
@@ -173,13 +176,11 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     });
 
     push_options.remote_callbacks(callbacks);
-    remote
-        .push(
-            &[format!(
-                "+refs/heads/{new_branch_name}:refs/heads/{new_branch_name}"
-            )],
-            Some(&mut push_options),
-        )
-        .unwrap();
+    remote.push(
+        &[format!(
+            "+refs/heads/{new_branch_name}:refs/heads/{new_branch_name}"
+        )],
+        Some(&mut push_options),
+    )?;
     Ok(())
 }
