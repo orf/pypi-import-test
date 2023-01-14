@@ -1,7 +1,7 @@
 mod archive;
 
 use crate::archive::{FileContent, PackageArchive};
-use anyhow::bail;
+
 use clap::Parser;
 use fs_extra::dir::CopyOptions;
 use git2::{
@@ -67,7 +67,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     // Copy our git directory to a temporary directory
     let tmp_dir = TempDir::new("git-import")?;
     let options = CopyOptions::new();
-    fs_extra::dir::copy(&repo, &tmp_dir, &options).unwrap();
+    fs_extra::dir::copy(repo, &tmp_dir, &options).unwrap();
     // Create the repo and grab the main branch, and the index
     let repo = Repository::open(tmp_dir.path().join("pypi-code-import"))?;
     let main = repo.revparse_single("main")?;
