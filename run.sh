@@ -6,5 +6,7 @@ cargo build --release
 
 export REPO="$1"
 export CONCURRENCY="$2"
+export INPUT="$3"
+export INPUT_BASE=$(basename "$INPUT")
 
-cat input_urls.txt | parallel  -P"$CONCURRENCY" --joblog=job.log --results=results/ --pipe -N1 --progress ./target/release/pypi-import-test --repo="$REPO" from-stdin
+parallel  -P"$CONCURRENCY" --joblog=logs/"${INPUT_BASE}".log --results=results/"${INPUT_BASE}"/ --pipe -N1 --progress ./target/release/pypi-import-test --repo="$REPO" from-stdin < "$INPUT"
