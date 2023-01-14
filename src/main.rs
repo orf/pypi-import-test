@@ -170,7 +170,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
         if let Some(e) = error {
             panic!("Error pushing {r}: {e}")
         } else {
-            println!("Pushed {r}");
+            // println!("Pushed {r}");
         }
         Ok(())
     });
