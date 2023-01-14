@@ -84,7 +84,8 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     let download_response = reqwest::blocking::get(url.clone())?;
     let mut archive = match PackageArchive::new(package_extension, download_response) {
         None => {
-            panic!("Unknown extension {package_extension}")
+            // Skip unknown extensions?
+            return Ok(())
         }
         Some(v) => v,
     };
