@@ -102,7 +102,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
                 id: hash,
                 flags: 0,
                 flags_extended: 0,
-                path: format!("package/{}", name).into(),
+                path: format!("package/{name}").into(),
             };
             index.add_frombuffer(&entry, &content).unwrap();
 
