@@ -40,6 +40,10 @@ enum RunType {
         url: Url,
     },
     FromStdin {},
+    FromJson {
+        #[arg()]
+        inputs: Vec<String>,
+    },
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -74,7 +78,24 @@ fn main() -> anyhow::Result<()> {
                     input.url,
                     args.dry_run,
                 )
-                .context(error_ctx)?
+                    .context(error_ctx)?
+            }
+        }
+        RunType::FromJson { inputs } => {
+            for input in inputs {
+                let input: JsonInput = serde_json::from_str(&*input).unwrap();
+                let error_ctx = format!(
+                    "Name: {}, version: {}, url: {}",
+                    input.name, input.version, input.url
+                );
+                run(
+                    &args.repo,
+                    input.name,
+                    input.version,
+                    input.url,
+                    args.dry_run,
+                )
+                    .context(error_ctx)?
             }
         }
     }
