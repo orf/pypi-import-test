@@ -9,4 +9,4 @@ export CONCURRENCY="$2"
 export INPUT="$3"
 export INPUT_BASE=$(basename "$INPUT")
 
-pv -l "$INPUT" | parallel --tty -n200 -P"$CONCURRENCY" --joblog=logs/"${INPUT_BASE}".log --pipe ./target/release/pypi-import-test --repo="$REPO" from-stdin
+parallel -a"$INPUT" --progress --eta -n200 -P"$CONCURRENCY" --joblog=logs/"${INPUT_BASE}".log --pipe ./target/release/pypi-import-test --repo="$REPO" from-json
