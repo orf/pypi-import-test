@@ -140,7 +140,7 @@ fn run(
     }
 
     if !has_any_text_files {
-        println!("No files!");
+        println!("No files! {url}");
         return Ok(());
     }
 
