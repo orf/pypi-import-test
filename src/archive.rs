@@ -68,7 +68,7 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
                             Some(Ok((name, content)))
                         }
                     },
-                    Err(e) => Some(Err(e.into())),
+                    Err(_) => None,
                 };
             },
             PackageEnumIterator::TarGz(t) => match t.flatten().find(|v| v.size() != 0) {
