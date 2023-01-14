@@ -55,30 +55,34 @@ fn main() -> anyhow::Result<()> {
     match args.run_type {
         RunType::FromArgs { name, version, url } => {
             let error_ctx = format!("Name: {}, version: {}, url: {}", name, version, url);
-            run(args.repo, name, version, url, args.dry_run).context(error_ctx)?
+            run(&args.repo, name, version, url, args.dry_run).context(error_ctx)?
         }
         RunType::FromStdin {} => {
             let stdin = io::stdin();
-            let input: JsonInput = serde_json::from_reader(stdin).unwrap();
-            let error_ctx = format!(
-                "Name: {}, version: {}, url: {}",
-                input.name, input.version, input.url
-            );
-            run(
-                args.repo,
-                input.name,
-                input.version,
-                input.url,
-                args.dry_run,
-            )
-            .context(error_ctx)?
+            let inputs = serde_json::Deserializer::from_reader(stdin)
+                .into_iter::<JsonInput>()
+                .map(|v| v.expect("Error reading JSON line"));
+            for input in inputs {
+                let error_ctx = format!(
+                    "Name: {}, version: {}, url: {}",
+                    input.name, input.version, input.url
+                );
+                run(
+                    &args.repo,
+                    input.name,
+                    input.version,
+                    input.url,
+                    args.dry_run,
+                )
+                .context(error_ctx)?
+            }
         }
     }
     Ok(())
 }
 
 fn run(
-    repo: PathBuf,
+    repo: &PathBuf,
     name: String,
     version: String,
     url: Url,
