@@ -1,6 +1,7 @@
 use std::io;
 use std::io::{BufReader, Read};
 
+use bzip2::read::BzDecoder;
 use content_inspector::{inspect, ContentType};
 use flate2::read::GzDecoder;
 use reqwest::blocking::Response;
@@ -10,6 +11,7 @@ use zip::read::read_zipfile_from_stream;
 pub enum PackageArchive {
     Zip(BufReader<Response>),
     TarGz(Archive<GzDecoder<Response>>),
+    TarBz(Archive<BzDecoder<Response>>),
 }
 
 impl PackageArchive {
@@ -23,6 +25,11 @@ impl PackageArchive {
                 let archive = Archive::new(tar);
                 PackageArchive::TarGz(archive)
             }
+            "bz2" => {
+                let tar = BzDecoder::new(reader);
+                let archive = Archive::new(tar);
+                PackageArchive::TarBz(archive)
+            }
             _ => unimplemented!("Unhandled extension {}", extension),
         }
     }
@@ -31,6 +38,7 @@ impl PackageArchive {
         match self {
             PackageArchive::Zip(z) => PackageEnumIterator::Zip(z),
             PackageArchive::TarGz(t) => PackageEnumIterator::TarGz(t.entries().unwrap()),
+            PackageArchive::TarBz(t) => PackageEnumIterator::TarBz(t.entries().unwrap()),
         }
     }
 }
@@ -38,6 +46,7 @@ impl PackageArchive {
 pub enum PackageEnumIterator<'a> {
     Zip(&'a mut BufReader<Response>),
     TarGz(Entries<'a, GzDecoder<Response>>),
+    TarBz(Entries<'a, BzDecoder<Response>>),
 }
 
 impl<'a> Iterator for PackageEnumIterator<'a> {
@@ -57,6 +66,14 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
                 Err(e) => Some(Err(e.into())),
             },
             PackageEnumIterator::TarGz(t) => match t.flatten().find(|v| v.size() != 0) {
+                None => None,
+                Some(v) => {
+                    let name = v.path().unwrap().to_str().unwrap().to_string();
+                    let content = inspect_content(v);
+                    Some(Ok((name, content)))
+                }
+            },
+            PackageEnumIterator::TarBz(t) => match t.flatten().find(|v| v.size() != 0) {
                 None => None,
                 Some(v) => {
                     let name = v.path().unwrap().to_str().unwrap().to_string();

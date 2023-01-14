@@ -1,6 +1,5 @@
 mod archive;
 
-use std::io;
 use crate::archive::{FileContent, PackageArchive};
 use clap::Parser;
 use fs_extra::dir::CopyOptions;
@@ -8,6 +7,7 @@ use git2::{
     Cred, Direction, IndexEntry, IndexTime, ObjectType, Oid, PushOptions, RemoteCallbacks,
     Repository, Signature,
 };
+use std::io;
 use std::path::{Path, PathBuf};
 use tempdir::TempDir;
 use url::Url;
@@ -34,7 +34,7 @@ enum RunType {
         #[arg()]
         url: Url,
     },
-    FromStdin {}
+    FromStdin {},
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -48,10 +48,8 @@ fn main() -> anyhow::Result<()> {
     let args: Cli = Cli::parse();
 
     match args.run_type {
-        RunType::FromArgs { name, version, url } => {
-            run(args.repo, name, version, url)?
-        }
-        RunType::FromStdin {  } => {
+        RunType::FromArgs { name, version, url } => run(args.repo, name, version, url)?,
+        RunType::FromStdin {} => {
             let stdin = io::stdin();
             let input: JsonInput = serde_json::from_reader(stdin).unwrap();
             run(args.repo, input.name, input.version, input.url)?
@@ -80,6 +78,10 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     let mut has_any_text_files = false;
 
     for (name, content) in archive.all_items().flatten() {
+        // Skip METADATA files. These can contain gigantic readme files which can bloat the repo?
+        if name.ends_with(".dist-info/METADATA") {
+            continue;
+        }
         if let FileContent::Text(content) = content {
             let hash = Oid::hash_object(ObjectType::Blob, &content).unwrap();
             let entry = IndexEntry {
@@ -103,6 +105,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     }
 
     if !has_any_text_files {
+        println!("No files!");
         return Ok(());
     }
 
@@ -122,10 +125,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
         .unwrap();
     let x = repo.find_commit(commit_oid)?;
 
-    let new_branch_name = format!(
-        "{}/{}/{}",
-        &name, &version, package_filename
-    );
+    let new_branch_name = format!("{}/{}/{}", &name, &version, package_filename);
 
     repo.branch(&new_branch_name, &x, true).unwrap();
 
@@ -153,7 +153,7 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
         "origin",
         &format!("refs/heads/{new_branch_name}:refs/heads/{new_branch_name}"),
     )
-        .unwrap();
+    .unwrap();
 
     let mut push_options = PushOptions::default();
     let mut callbacks = create_callbacks();
@@ -177,4 +177,3 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
         .unwrap();
     Ok(())
 }
-
