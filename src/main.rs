@@ -1,6 +1,7 @@
 mod archive;
 
 use crate::archive::{FileContent, PackageArchive};
+use anyhow::bail;
 use clap::Parser;
 use fs_extra::dir::CopyOptions;
 use git2::{
@@ -73,7 +74,12 @@ fn run(repo: PathBuf, name: String, version: String, url: Url) -> anyhow::Result
     let mut index = repo.index()?;
 
     let download_response = reqwest::blocking::get(url.clone())?;
-    let mut archive = PackageArchive::new(package_extension, download_response);
+    let mut archive = match PackageArchive::new(package_extension, download_response) {
+        None => {
+            panic!("Unknown extension {package_extension}")
+        }
+        Some(v) => v,
+    };
 
     let mut has_any_text_files = false;
 

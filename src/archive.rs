@@ -15,22 +15,23 @@ pub enum PackageArchive {
 }
 
 impl PackageArchive {
-    pub fn new(extension: &str, reader: Response) -> Self {
+    pub fn new(extension: &str, reader: Response) -> Option<Self> {
         match extension {
-            "egg" | "zip" | "whl" => {
-                PackageArchive::Zip(BufReader::with_capacity(1024 * 1024 * 12, reader))
-            }
+            "egg" | "zip" | "whl" => Some(PackageArchive::Zip(BufReader::with_capacity(
+                1024 * 1024 * 12,
+                reader,
+            ))),
             "gz" => {
                 let tar = GzDecoder::new(reader);
                 let archive = Archive::new(tar);
-                PackageArchive::TarGz(archive)
+                Some(PackageArchive::TarGz(archive))
             }
             "bz2" => {
                 let tar = BzDecoder::new(reader);
                 let archive = Archive::new(tar);
-                PackageArchive::TarBz(archive)
+                Some(PackageArchive::TarBz(archive))
             }
-            _ => unimplemented!("Unhandled extension {}", extension),
+            _ => None,
         }
     }
 
