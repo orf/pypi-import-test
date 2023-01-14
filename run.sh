@@ -4,4 +4,7 @@ export RUSTFLAGS="-Ctarget-cpu=native"
 
 cargo build --release
 
-cat input_urls.txt | head -n25 | parallel -P15 --pipe -N1 --progress ./target/release/pypi-import-test --repo=/Users/tom/PycharmProjects/github/orf/pypi-code-import from-stdin
+export REPO="$1"
+export CONCURRENCY="$2"
+
+parallel -a input_urls.txt -P"$CONCURRENCY" --joblog=job.log --results=results/ --pipe -N1 --progress ./target/release/pypi-import-test --repo="$REPO" from-stdin
