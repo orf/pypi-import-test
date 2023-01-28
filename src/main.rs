@@ -143,7 +143,6 @@ fn run(
     let download_response = reqwest::blocking::get(url.clone())?;
     let mut archive = match PackageArchive::new(package_extension, download_response) {
         None => {
-            // Skip unknown extensions?
             println!("Unknown extension {package_extension}");
             return Ok(());
         }
@@ -154,10 +153,10 @@ fn run(
 
     for (file_name, content) in archive.all_items().flatten() {
         // Skip METADATA files. These can contain gigantic readme files which can bloat the repo?
-        let path = format!("code/{name}/{version}/{file_name}").replace("/./", "/");
-        if path.ends_with(".dist-info/METADATA") || path.contains("/.git/") {
+        if file_name.ends_with(".dist-info/METADATA") || file_name.contains("/.git/") {
             continue;
         }
+        let path = format!("code/{name}/{version}/{file_name}").replace("/./", "/");
         if let FileContent::Text(content) = content {
             let hash = Oid::hash_object(ObjectType::Blob, &content)?;
             let entry = IndexEntry {
@@ -186,9 +185,8 @@ fn run(
     }
 
     let oid = index.write_tree()?;
-
-    let signature = Signature::now("Tom Forbes", "tom@tomforb.es")?;
     let tree = repo.find_tree(oid)?;
+    let signature = Signature::now("Tom Forbes", "tom@tomforb.es")?;
     let parent = match &repo.head() {
         Ok(v) => Some(v.peel_to_commit().unwrap()),
         Err(_) => None,

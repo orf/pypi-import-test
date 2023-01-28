@@ -35,6 +35,7 @@ impl PackageArchive {
         }
     }
 
+    #[inline(always)]
     pub fn all_items(&mut self) -> PackageEnumIterator {
         match self {
             PackageArchive::Zip(z) => PackageEnumIterator::Zip(z),
