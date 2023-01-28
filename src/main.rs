@@ -1,16 +1,16 @@
 mod archive;
 
 use crate::archive::{FileContent, PackageArchive};
-use std::any::Any;
+
 
 use anyhow::Context;
 use clap::Parser;
 use git2::{
-    CherrypickOptions, Commit, Cred, Direction, Error, Index, IndexEntry, IndexTime, ObjectType,
-    Oid, PushOptions, Reference, RemoteCallbacks, Repository, Signature, Sort,
+    Index, IndexEntry, IndexTime, ObjectType,
+    Oid, Repository, Signature, Sort,
 };
-use std::io;
-use std::path::{Path, PathBuf};
+
+use std::path::{PathBuf};
 use url::Url;
 
 #[derive(Parser)]
@@ -65,11 +65,11 @@ fn main() -> anyhow::Result<()> {
             let mut remote = repo.find_remote("django").unwrap();
 
             for refspec in remote.fetch_refspecs().unwrap().iter() {
-                println!("ref: {:?}", refspec);
+                println!("ref: {refspec:?}");
             }
             remote
                 .fetch(
-                    &[format!("refs/heads/master:refs/remotes/django/master")],
+                    &["refs/heads/master:refs/remotes/django/master".to_string()],
                     None,
                     None,
                 )
