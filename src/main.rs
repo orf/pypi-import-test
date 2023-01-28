@@ -136,7 +136,8 @@ fn run(
 
     for (name, content) in archive.all_items().flatten() {
         // Skip METADATA files. These can contain gigantic readme files which can bloat the repo?
-        if name.ends_with(".dist-info/METADATA") {
+        let path = format!("package/{name}").replace("/./", "/");
+        if path.ends_with(".dist-info/METADATA") || path.contains("/.git/") {
             continue;
         }
         if let FileContent::Text(content) = content {
@@ -156,7 +157,7 @@ fn run(
                 id: hash,
                 flags: 0,
                 flags_extended: 0,
-                path: format!("package/{name}").replace("/./", "/").into(),
+                path: path.into(),
             };
             index.add_frombuffer(&entry, &content)?;
 
