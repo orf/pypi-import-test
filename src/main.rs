@@ -43,7 +43,12 @@ enum RunType {
         #[arg()]
         input_file: PathBuf,
     },
-    Inspect {},
+    Inspect {
+        #[arg()]
+        target: PathBuf,
+        #[arg()]
+        base: PathBuf,
+    },
     CreateUrls {
         #[arg()]
         data: PathBuf,
@@ -72,21 +77,19 @@ fn main() -> anyhow::Result<()> {
             run_multiple(&args.repo, input)?;
         }
         RunType::CreateUrls { data, output_dir } => data::extract_urls(data, output_dir),
-        RunType::Inspect {} => {
-            let repo = Repository::open("/Users/tom/tmp/foo/test/test").unwrap();
-            let mut remote = repo.find_remote("django").unwrap();
-
-            for refspec in remote.fetch_refspecs().unwrap().iter() {
-                println!("ref: {refspec:?}");
-            }
+        RunType::Inspect { target, base} => {
+            let repo = Repository::open(target).unwrap();
+            // let mut remote = repo.find_remote("import").unwrap();
+            repo.remote_delete("import");
+            let mut remote = repo.remote("import", base.to_str().unwrap()).unwrap();
             remote
                 .fetch(
-                    &["refs/heads/master:refs/remotes/django/master".to_string()],
+                    &["refs/heads/master:refs/remotes/import/master".to_string()],
                     None,
                     None,
                 )
                 .unwrap();
-            let reference = repo.find_reference("refs/remotes/django/master").unwrap();
+            let reference = repo.find_reference("refs/remotes/import/master").unwrap();
 
             let remote_ref = reference.peel_to_commit().unwrap();
             let mut local_commit = repo.head().unwrap().peel_to_commit().unwrap();
