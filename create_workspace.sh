@@ -28,7 +28,7 @@ echo "creating URLs"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="django.json"
 
 echo "creating index file"
-fd -a . "$URLS_DIR" > "$INDEX_FILE"
+fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 
 #echo "splitting files into partitions"
 #split -d -l "$PACKAGES_PER_PARTITION" "$INDEX_FILE" "$SPLITS_DIR"
