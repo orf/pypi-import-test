@@ -136,9 +136,14 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
 
     thread::spawn(move || {
         let signature = Signature::now("Tom Forbes", "tom@tomforb.es").unwrap();
+        let mut repo_idx = repo.index().unwrap();
 
         for (r, (i, mut index, filename)) in r {
-            let oid = index.write_tree().unwrap();
+            for entry in index.iter() {
+                repo_idx.add(&entry).unwrap();
+            }
+            let oid = repo_idx.write_tree().unwrap();
+            // let oid = index.write_tree().unwrap();
             let tree = repo.find_tree(oid).unwrap();
             let parent = match &repo.head() {
                 Ok(v) => Some(v.peel_to_commit().unwrap()),
