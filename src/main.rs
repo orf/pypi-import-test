@@ -198,7 +198,6 @@ fn run(mut index: Index, item: JsonInput) -> anyhow::Result<Option<(JsonInput, I
     let download_response = reqwest::blocking::get(item.url.clone())?;
     let mut archive = match PackageArchive::new(package_extension, download_response) {
         None => {
-            println!("Unknown extension {package_extension}");
             return Ok(None);
         }
         Some(v) => v,
