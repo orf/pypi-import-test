@@ -1,16 +1,20 @@
 mod archive;
+mod data;
 
 use crate::archive::{FileContent, PackageArchive};
-
+use std::fs::File;
+use std::io::BufReader;
 
 use anyhow::Context;
 use clap::Parser;
-use git2::{
-    Index, IndexEntry, IndexTime, ObjectType,
-    Oid, Repository, Signature, Sort,
-};
+use git2::{Index, IndexEntry, IndexTime, ObjectType, Odb, Oid, Repository, Signature, Sort};
+use rayon::prelude::*;
 
-use std::path::{PathBuf};
+use crossbeam::channel::unbounded;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::process::id;
+use std::thread;
 use url::Url;
 
 #[derive(Parser)]
@@ -37,13 +41,19 @@ enum RunType {
     },
     FromJson {
         #[arg()]
-        inputs: Vec<String>,
+        input_file: PathBuf,
     },
     Inspect {},
+    CreateUrls {
+        #[arg()]
+        data: PathBuf,
+        #[arg()]
+        output_dir: PathBuf,
+    },
 }
 
-#[derive(serde::Deserialize, Debug)]
-struct JsonInput {
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
+pub struct JsonInput {
     name: String,
     version: String,
     url: Url,
@@ -54,12 +64,14 @@ fn main() -> anyhow::Result<()> {
 
     match args.run_type {
         RunType::FromArgs { name, version, url } => {
-            run_multiple(&args.repo, [JsonInput { name, version, url }].into_iter())?;
+            run_multiple(&args.repo, vec![JsonInput { name, version, url }])?;
         }
-        RunType::FromJson { inputs } => {
-            let items = inputs.iter().map(|v| serde_json::from_str(v).unwrap());
-            run_multiple(&args.repo, items)?;
+        RunType::FromJson { input_file } => {
+            let reader = BufReader::new(File::open(input_file).unwrap());
+            let input: Vec<JsonInput> = serde_json::from_reader(reader).unwrap();
+            run_multiple(&args.repo, input)?;
         }
+        RunType::CreateUrls { data, output_dir } => data::extract_urls(data, output_dir),
         RunType::Inspect {} => {
             let repo = Repository::open("/Users/tom/tmp/foo/test/test").unwrap();
             let mut remote = repo.find_remote("django").unwrap();
@@ -108,7 +120,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_multiple(repo_path: &PathBuf, items: impl Iterator<Item = JsonInput>) -> anyhow::Result<()> {
+fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()> {
     let repo = match Repository::open(repo_path) {
         Ok(v) => v,
         Err(_) => {
@@ -119,32 +131,67 @@ fn run_multiple(repo_path: &PathBuf, items: impl Iterator<Item = JsonInput>) -> 
         }
     };
 
-    let mut index = repo.index().unwrap();
-    for item in items {
+    use crossbeam::channel::bounded;
+    let (s, r) = bounded::<(Repository, (JsonInput, Index, String))>(10);
+
+    thread::spawn(move || {
+        let signature = Signature::now("Tom Forbes", "tom@tomforb.es").unwrap();
+
+        for (r, (i, mut index, filename)) in r {
+            let oid = index.write_tree().unwrap();
+            let tree = repo.find_tree(oid).unwrap();
+            let parent = match &repo.head() {
+                Ok(v) => Some(v.peel_to_commit().unwrap()),
+                Err(_) => None,
+            };
+            let parent = match &parent {
+                None => vec![],
+                Some(p) => vec![p],
+            };
+            repo.commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                format!("{} {} ({})", i.name, i.version, filename).as_str(),
+                &tree,
+                &parent,
+            )
+            .unwrap();
+        }
+    });
+
+    items.into_par_iter().for_each(|item| {
+        let repo = Repository::open(repo_path).unwrap();
+        let index = repo.index().unwrap();
         let error_ctx = format!(
             "Name: {}, version: {}, url: {}",
             item.name, item.version, item.url
         );
-        run(&repo, &mut index, item.name, item.version, item.url).context(error_ctx)?;
-    }
+
+        let idx = run(index, item).context(error_ctx).unwrap();
+        if let Some(idx) = idx {
+            s.send((repo, idx)).unwrap();
+        }
+    });
+
     Ok(())
 }
 
-fn run(
-    repo: &Repository,
-    index: &mut Index,
-    name: String,
-    version: String,
-    url: Url,
-) -> anyhow::Result<()> {
-    let package_filename = url.path_segments().unwrap().last().unwrap();
+fn run(mut index: Index, item: JsonInput) -> anyhow::Result<Option<(JsonInput, Index, String)>> {
+    let package_filename = item
+        .url
+        .path_segments()
+        .unwrap()
+        .last()
+        .unwrap()
+        .to_string();
     let package_extension = package_filename.rsplit('.').next().unwrap();
 
-    let download_response = reqwest::blocking::get(url.clone())?;
+    let download_response = reqwest::blocking::get(item.url.clone())?;
     let mut archive = match PackageArchive::new(package_extension, download_response) {
         None => {
             println!("Unknown extension {package_extension}");
-            return Ok(());
+            return Ok(None);
         }
         Some(v) => v,
     };
@@ -156,7 +203,7 @@ fn run(
         if file_name.ends_with(".dist-info/METADATA") || file_name.contains("/.git/") {
             continue;
         }
-        let path = format!("code/{name}/{version}/{file_name}").replace("/./", "/");
+        let path = format!("code/{}/{}/{file_name}", item.name, item.version).replace("/./", "/");
         if let FileContent::Text(content) = content {
             let hash = Oid::hash_object(ObjectType::Blob, &content)?;
             let entry = IndexEntry {
@@ -173,37 +220,17 @@ fn run(
                 flags_extended: 0,
                 path: path.into(),
             };
-            index.add_frombuffer(&entry, &content)?;
+            index
+                .add_frombuffer(&entry, &content)
+                .expect("Error adding index");
 
             has_any_text_files = true;
         }
     }
 
     if !has_any_text_files {
-        println!("No files! {url}");
-        return Ok(());
+        return Ok(None);
     }
 
-    let oid = index.write_tree()?;
-    let tree = repo.find_tree(oid)?;
-    let signature = Signature::now("Tom Forbes", "tom@tomforb.es")?;
-    let parent = match &repo.head() {
-        Ok(v) => Some(v.peel_to_commit().unwrap()),
-        Err(_) => None,
-    };
-    let parent = match &parent {
-        None => vec![],
-        Some(p) => vec![p],
-    };
-
-    repo.commit(
-        Some("HEAD"),
-        &signature,
-        &signature,
-        format!("{name} {version} ({package_filename})").as_str(),
-        &tree,
-        &parent,
-    )?;
-
-    Ok(())
+    Ok(Some((item, index, package_filename.to_string())))
 }
