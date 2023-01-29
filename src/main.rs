@@ -7,7 +7,7 @@ use std::io::BufReader;
 
 use anyhow::Context;
 use clap::Parser;
-use git2::{Index, IndexEntry, IndexTime, ObjectType, Oid, Repository, Signature, Sort};
+use git2::{IndexEntry, IndexTime, Repository, Signature, Sort};
 use rayon::prelude::*;
 
 
@@ -87,9 +87,9 @@ fn main() -> anyhow::Result<()> {
         RunType::Combine { base_repo, target_repos } => {
             let repo = Repository::open(base_repo).unwrap();
             let commits_to_pick= target_repos.iter().enumerate().flat_map(|(idx, target)| {
-                let remote_name = format!("import_{}", idx);
-                let _ = repo.remote_delete(&*remote_name);
-                let mut remote = repo.remote(&*remote_name, format!("file://{}", target.to_str().unwrap()).as_str()).unwrap();
+                let remote_name = format!("import_{idx}");
+                let _ = repo.remote_delete(&remote_name);
+                let mut remote = repo.remote(&remote_name, format!("file://{}", target.to_str().unwrap()).as_str()).unwrap();
                 remote
                     .fetch(
                         &["refs/heads/master:refs/remotes/import/master".to_string()],
@@ -97,7 +97,7 @@ fn main() -> anyhow::Result<()> {
                         None,
                     )
                     .unwrap();
-                let reference = repo.find_reference(format!("refs/remotes/{}/master", remote_name).as_str()).unwrap();
+                let reference = repo.find_reference(format!("refs/remotes/{remote_name}/master").as_str()).unwrap();
                 let remote_ref = reference.peel_to_commit().unwrap();
                 let mut walk = repo.revwalk().unwrap();
                 walk.push(remote_ref.id()).unwrap();
@@ -151,7 +151,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
 
         for (i, index, filename) in r {
             for entry in index.iter() {
-                repo_idx.add(&entry).unwrap();
+                repo_idx.add(entry).unwrap();
             }
             let oid = repo_idx.write_tree().unwrap_or_else(|_| panic!("Error writing {} {} {}", i.name, i.version, i.url));
 
