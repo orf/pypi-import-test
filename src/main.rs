@@ -218,7 +218,6 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
             )
                 .unwrap();
         }
-        println!("Ending!");
     }).unwrap();
 
     let mut buf = Buf::new();

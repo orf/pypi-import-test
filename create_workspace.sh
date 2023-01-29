@@ -25,18 +25,20 @@ mkdir -p "$PARTITIONS_DIR"
 echo "creating URLs"
 ./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
+#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="django.json"
 
 echo "creating index file"
 fd -a . "$URLS_DIR" > "$INDEX_FILE"
 
-echo "splitting files into partitions"
-split -d -l "$PACKAGES_PER_PARTITION" "$INDEX_FILE" "$SPLITS_DIR"
+#echo "splitting files into partitions"
+#split -d -l "$PACKAGES_PER_PARTITION" "$INDEX_FILE" "$SPLITS_DIR"
 
-echo "indexing splits"
-fd --base-directory="$SPLITS_DIR" . > "$SPLITS_INDEX_FILE"
+#echo "indexing splits"
+#fd --base-directory="$SPLITS_DIR" . > "$SPLITS_INDEX_FILE"
 
-echo "creating partitions directory"
-parallel -a "$SPLITS_INDEX_FILE" -I@ 'mkdir -p $PARTITIONS_DIR/@'
+#echo "creating partitions directory"
+#parallel -a "$SPLITS_INDEX_FILE" -I@ 'mkdir -p $PARTITIONS_DIR/@'
 
 echo "running partitions"
-parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
+#parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
+parallel --progress --eta -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $PARTITION_DIRECTORY/{/}"
