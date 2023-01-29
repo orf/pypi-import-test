@@ -1,0 +1,5 @@
+[
+  {"name":"Django","version":"4.0.3","url":"https://files.pythonhosted.org/packages/1a/80/b06ce333aabba7ab1b6a41ea3c4e46970ceb396e705733480a2d47a7f74b/Django-4.0.3-py3-none-any.whl"},
+  {"name":"Django","version":"4.0.5","url":"https://files.pythonhosted.org/packages/5a/4c/93120fb4275d06c3645c94f2e26fe87f3f52258b61c183b25c630ba34d3a/Django-4.0.5.tar.gz"},
+  {"name":"Django","version":"4.1b1","url":"https://files.pythonhosted.org/packages/d4/b8/03307e023bbae4184dfb1ed6f264b91b579a3099133c219992f7e7757a2b/Django-4.1b1.tar.gz"},
+]

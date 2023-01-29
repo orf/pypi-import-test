@@ -7,6 +7,9 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
+use rand::thread_rng;
+use rand::seq::SliceRandom;
+
 
 #[derive(Debug, Deserialize)]
 struct Info {
@@ -25,13 +28,29 @@ struct PackageVersion {
     urls: Vec<Url>,
 }
 
-pub fn extract_urls(dir: PathBuf, output_dir: PathBuf) {
-    let files: Vec<_> = WalkDir::new(dir)
+pub fn extract_urls(dir: PathBuf, output_dir: PathBuf, limit: Option<usize>, find: Option<String>) {
+    let files_iter = WalkDir::new(dir)
         .min_depth(2)
         .into_iter()
         .flatten()
-        .filter(|e| e.file_type().is_file())
-        .collect();
+        .filter(|e| e.file_type().is_file());
+        //.sorted_by_key(|v| v.file_name.clone())
+        // .collect();
+
+    let mut files: Vec<_> = match find {
+        None => files_iter.collect(),
+        Some(f) => files_iter.filter(|e| {
+            e.file_name.to_str().unwrap().starts_with(&f)
+        }).collect()
+    };
+
+    let files = match limit {
+        None => files,
+        Some(v) => {
+            files.shuffle(&mut thread_rng());
+            files.into_iter().take(v).collect()
+        }
+    };
 
     files.into_par_iter().for_each(|entry| {
         let reader = BufReader::new(File::open(entry.path()).unwrap());
@@ -53,6 +72,10 @@ pub fn extract_urls(dir: PathBuf, output_dir: PathBuf) {
                 url: url.parse().unwrap(),
             })
             .collect();
+
+        if packages_to_download.is_empty() {
+            return;
+        }
 
         let output_file = File::create(output_dir.join(entry.file_name)).unwrap();
         let writer = BufWriter::new(output_file);

@@ -92,6 +92,7 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
     }
 }
 
+#[derive(Debug)]
 pub enum FileContent {
     Binary,
     Text(Vec<u8>),
