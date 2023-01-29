@@ -142,7 +142,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
             for entry in index.iter() {
                 repo_idx.add(&entry).unwrap();
             }
-            let oid = repo_idx.write_tree().unwrap();
+            let oid = repo_idx.write_tree().unwrap_or_else(|_| panic!("Error writing {} {} {}", i.name, i.version, i.url));
             // let oid = index.write_tree().unwrap();
             let tree = repo.find_tree(oid).unwrap();
             let parent = match &repo.head() {
