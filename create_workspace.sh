@@ -6,7 +6,7 @@ cargo build --release
 export WORKSPACE="$1"
 export REPOS_DIRECTORY="$2"
 
-export PACKAGES_PER_PARTITION="2"
+export PACKAGES_PER_PARTITION="1000"
 export LIMIT="10"
 
 export SPLITS_DIR="$WORKSPACE"/splits/
@@ -23,7 +23,8 @@ mkdir -p "$URLS_DIR"
 mkdir -p "$PARTITIONS_DIR"
 
 echo "creating URLs"
-./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="django.json"
+./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
+#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
 
 echo "creating index file"
 fd -a . "$URLS_DIR" > "$INDEX_FILE"
@@ -38,4 +39,4 @@ echo "creating partitions directory"
 parallel -a "$SPLITS_INDEX_FILE" -I@ 'mkdir -p $PARTITIONS_DIR/@'
 
 echo "running partitions"
-parallel -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@'
+parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
