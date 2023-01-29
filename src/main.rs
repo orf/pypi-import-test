@@ -205,7 +205,7 @@ fn run(mut index: Index, item: JsonInput) -> anyhow::Result<Option<(JsonInput, I
 
     for (file_name, content) in archive.all_items().flatten() {
         // Skip METADATA files. These can contain gigantic readme files which can bloat the repo?
-        if file_name.ends_with(".dist-info/METADATA") || file_name.contains("/.git/") {
+        if file_name.ends_with(".dist-info/METADATA") || file_name.contains("/.git/") || file_name.ends_with("/.git") {
             continue;
         }
         let path = format!("code/{}/{}/{}/{file_name}", item.name, item.version, package_filename).replace("/./", "/");
