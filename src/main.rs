@@ -81,7 +81,7 @@ fn main() -> anyhow::Result<()> {
             let repo = Repository::open(target).unwrap();
             // let mut remote = repo.find_remote("import").unwrap();
             repo.remote_delete("import");
-            let mut remote = repo.remote("import", base.to_str().unwrap()).unwrap();
+            let mut remote = repo.remote("import", format!("file://{}",base.to_str().unwrap()).as_str()).unwrap();
             remote
                 .fetch(
                     &["refs/heads/master:refs/remotes/import/master".to_string()],
