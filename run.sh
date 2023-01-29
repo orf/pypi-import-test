@@ -8,4 +8,5 @@ export REPOS="$1"
 export INPUT="$2"
 export CONCURRENCY="$3"
 
-parallel -a"$INPUT" --progress --eta -P"$CONCURRENCY" -I{} "./target/release/pypi-import-test --repo="$REPOS/{/}" from-json {} && echo $REPOS/{/}"
+parallel -a"$INPUT" --progress --eta -P"$CONCURRENCY" -I{} "./target/release/pypi-import-test --repo="$REPOS/{/}" from-json {}"
+# && echo $REPOS/{/}
