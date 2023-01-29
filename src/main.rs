@@ -10,9 +10,7 @@ use clap::Parser;
 use git2::{IndexEntry, IndexTime, Repository, Signature, Sort};
 use rayon::prelude::*;
 
-
 use std::path::PathBuf;
-
 
 use std::thread;
 use url::Url;
@@ -75,7 +73,12 @@ fn main() -> anyhow::Result<()> {
     let args: Cli = Cli::parse();
 
     match args.run_type {
-        RunType::FromArgs { name, version, url, repo } => {
+        RunType::FromArgs {
+            name,
+            version,
+            url,
+            repo,
+        } => {
             run_multiple(&repo, vec![JsonInput { name, version, url }])?;
         }
         RunType::FromJson { input_file, repo } => {
@@ -83,27 +86,46 @@ fn main() -> anyhow::Result<()> {
             let input: Vec<JsonInput> = serde_json::from_reader(reader).unwrap();
             run_multiple(&repo, input)?;
         }
-        RunType::CreateUrls { data, output_dir,  limit, find} => data::extract_urls(data, output_dir, limit, find),
-        RunType::Combine { base_repo, target_repos } => {
+        RunType::CreateUrls {
+            data,
+            output_dir,
+            limit,
+            find,
+        } => data::extract_urls(data, output_dir, limit, find),
+        RunType::Combine {
+            base_repo,
+            target_repos,
+        } => {
             let repo = Repository::open(base_repo).unwrap();
-            let commits_to_pick= target_repos.iter().enumerate().flat_map(|(idx, target)| {
-                let remote_name = format!("import_{idx}");
-                let _ = repo.remote_delete(&remote_name);
-                let mut remote = repo.remote(&remote_name, format!("file://{}", target.to_str().unwrap()).as_str()).unwrap();
-                remote
-                    .fetch(
-                        &["refs/heads/master:refs/remotes/import/master".to_string()],
-                        None,
-                        None,
-                    )
-                    .unwrap();
-                let reference = repo.find_reference(format!("refs/remotes/{remote_name}/master").as_str()).unwrap();
-                let remote_ref = reference.peel_to_commit().unwrap();
-                let mut walk = repo.revwalk().unwrap();
-                walk.push(remote_ref.id()).unwrap();
-                walk.set_sorting(Sort::REVERSE).unwrap();
-                walk
-            }).flatten();
+            let commits_to_pick = target_repos
+                .iter()
+                .enumerate()
+                .flat_map(|(idx, target)| {
+                    let remote_name = format!("import_{idx}");
+                    let _ = repo.remote_delete(&remote_name);
+                    let mut remote = repo
+                        .remote(
+                            &remote_name,
+                            format!("file://{}", target.to_str().unwrap()).as_str(),
+                        )
+                        .unwrap();
+                    remote
+                        .fetch(
+                            &["refs/heads/master:refs/remotes/import/master".to_string()],
+                            None,
+                            None,
+                        )
+                        .unwrap();
+                    let reference = repo
+                        .find_reference(format!("refs/remotes/{remote_name}/master").as_str())
+                        .unwrap();
+                    let remote_ref = reference.peel_to_commit().unwrap();
+                    let mut walk = repo.revwalk().unwrap();
+                    walk.push(remote_ref.id()).unwrap();
+                    walk.set_sorting(Sort::REVERSE).unwrap();
+                    walk
+                })
+                .flatten();
 
             let mut local_commit = repo.head().unwrap().peel_to_commit().unwrap();
 
@@ -153,7 +175,9 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
             for entry in index.iter() {
                 repo_idx.add(entry).unwrap();
             }
-            let oid = repo_idx.write_tree().unwrap_or_else(|_| panic!("Error writing {} {} {}", i.name, i.version, i.url));
+            let oid = repo_idx
+                .write_tree()
+                .unwrap_or_else(|_| panic!("Error writing {} {} {}", i.name, i.version, i.url));
 
             let tree = repo.find_tree(oid).unwrap();
             let parent = match &repo.head() {
@@ -172,7 +196,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
                 &tree,
                 &parent,
             )
-                .unwrap();
+            .unwrap();
         }
     });
 
@@ -204,7 +228,10 @@ const IGNORED_SUFFIXES: &[&str] = &[
     ".dist-info/DESCRIPTION.rst",
 ];
 
-fn run(repo: Repository, item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<IndexEntry>, String)>> {
+fn run(
+    repo: Repository,
+    item: JsonInput,
+) -> anyhow::Result<Option<(JsonInput, Vec<IndexEntry>, String)>> {
     let package_filename = item
         .url
         .path_segments()
@@ -215,7 +242,8 @@ fn run(repo: Repository, item: JsonInput) -> anyhow::Result<Option<(JsonInput, V
     let package_extension = package_filename.rsplit('.').next().unwrap();
     // The package filename contains the package name and the version. We don't need this in the output, so just ignore it.
     // The format is `{name}-{version}-{rest}`, so we strip out `rest`
-    let reduced_package_filename = &package_filename[(item.name.len() + 1 + item.version.len() + 1)..];
+    let reduced_package_filename =
+        &package_filename[(item.name.len() + 1 + item.version.len() + 1)..];
 
     // .tar.gz files unwrap all contents to paths like `Django-1.10rc1/...`. This isn't great,
     // so we detect this and strip the prefix.
@@ -234,7 +262,10 @@ fn run(repo: Repository, item: JsonInput) -> anyhow::Result<Option<(JsonInput, V
     let mut entries = Vec::with_capacity(1024);
 
     for (file_name, content) in archive.all_items().flatten() {
-        if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s)) || file_name.contains("/.git/") || file_name.ends_with("/.git") {
+        if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
+            || file_name.contains("/.git/")
+            || file_name.ends_with("/.git")
+        {
             continue;
         }
         let file_name = if file_name.starts_with(&tar_gz_first_segment) {
@@ -242,7 +273,12 @@ fn run(repo: Repository, item: JsonInput) -> anyhow::Result<Option<(JsonInput, V
         } else {
             &*file_name
         };
-        let path = format!("code/{}/{}/{}/{file_name}", item.name, item.version, reduced_package_filename).replace("/./", "/").replace("/../", "/");
+        let path = format!(
+            "code/{}/{}/{}/{file_name}",
+            item.name, item.version, reduced_package_filename
+        )
+        .replace("/./", "/")
+        .replace("/../", "/");
         if let FileContent::Text(content) = content {
             let oid = repo.blob(&content).unwrap();
             let blob = repo.find_blob(oid).unwrap();

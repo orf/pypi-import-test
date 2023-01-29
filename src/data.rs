@@ -1,15 +1,14 @@
 use crate::JsonInput;
 use itertools::Itertools;
 use jwalk::{rayon, WalkDir};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use rayon::prelude::*;
-use serde::{Deserialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
-use rand::thread_rng;
-use rand::seq::SliceRandom;
-
 
 #[derive(Debug, Deserialize)]
 struct Info {
@@ -34,14 +33,14 @@ pub fn extract_urls(dir: PathBuf, output_dir: PathBuf, limit: Option<usize>, fin
         .into_iter()
         .flatten()
         .filter(|e| e.file_type().is_file());
-        //.sorted_by_key(|v| v.file_name.clone())
-        // .collect();
+    //.sorted_by_key(|v| v.file_name.clone())
+    // .collect();
 
     let mut files: Vec<_> = match find {
         None => files_iter.collect(),
-        Some(f) => files_iter.filter(|e| {
-            e.file_name.to_str().unwrap().starts_with(&f)
-        }).collect()
+        Some(f) => files_iter
+            .filter(|e| e.file_name.to_str().unwrap().starts_with(&f))
+            .collect(),
     };
 
     let files = match limit {
