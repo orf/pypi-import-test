@@ -7,13 +7,13 @@ use std::io::BufReader;
 
 use anyhow::Context;
 use clap::Parser;
-use git2::{Index, IndexEntry, IndexTime, ObjectType, Odb, Oid, Repository, Signature, Sort};
+use git2::{Index, IndexEntry, IndexTime, ObjectType, Oid, Repository, Signature, Sort};
 use rayon::prelude::*;
 
-use crossbeam::channel::unbounded;
+
 use std::path::PathBuf;
-use std::pin::Pin;
-use std::process::id;
+
+
 use std::thread;
 use url::Url;
 
@@ -138,7 +138,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
         let signature = Signature::now("Tom Forbes", "tom@tomforb.es").unwrap();
         let mut repo_idx = repo.index().unwrap();
 
-        for (r, (i, mut index, filename)) in r {
+        for (_r, (i, index, filename)) in r {
             for entry in index.iter() {
                 repo_idx.add(&entry).unwrap();
             }
@@ -208,7 +208,7 @@ fn run(mut index: Index, item: JsonInput) -> anyhow::Result<Option<(JsonInput, I
         if file_name.ends_with(".dist-info/METADATA") || file_name.contains("/.git/") {
             continue;
         }
-        let path = format!("code/{}/{}/{file_name}", item.name, item.version).replace("/./", "/");
+        let path = format!("code/{}/{}/{}/{file_name}", item.name, item.version, package_filename).replace("/./", "/");
         if let FileContent::Text(content) = content {
             let hash = Oid::hash_object(ObjectType::Blob, &content)?;
             let entry = IndexEntry {

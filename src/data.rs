@@ -2,7 +2,7 @@ use crate::JsonInput;
 use itertools::Itertools;
 use jwalk::{rayon, WalkDir};
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
