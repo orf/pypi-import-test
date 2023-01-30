@@ -17,7 +17,8 @@ export SPLITS_INDEX_FILE="$WORKSPACE"/splits-index
 export PARTITIONS_DIR="$WORKSPACE"/partitions/
 
 echo "Removing existing workspace"
-rm -rf "$WORKSPACE"
+mv "$WORKSPACE" "$WORKSPACE"2 && rm -rf "$WORKSPACE"2 &
+
 mkdir -p "$WORKSPACE"
 mkdir -p "$SPLITS_DIR"
 mkdir -p "$URLS_DIR"
@@ -42,4 +43,4 @@ fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 
 echo "running partitions"
 #parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
-parallel --progress --eta -P"$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $PARTITIONS_DIR/{/}"
+parallel --progress --eta -P"$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"
