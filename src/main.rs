@@ -159,7 +159,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
     let repo = match Repository::open(repo_path) {
         Ok(v) => v,
         Err(_) => {
-            let _ = fs::create_dir(repo_path.parent().unwrap());
+            let _ = fs::create_dir(repo_path);
             let repo = Repository::init(repo_path).unwrap();
             let mut index = repo.index().unwrap();
             index.set_version(4).unwrap();
