@@ -17,7 +17,7 @@ export SPLITS_INDEX_FILE="$WORKSPACE"/splits-index
 export PARTITIONS_DIR="$WORKSPACE"/partitions/
 
 echo "Removing existing workspace"
-mv "$WORKSPACE" "$WORKSPACE"2 && rm -rf "$WORKSPACE"2 &
+mv "$WORKSPACE" "old_$WORKSPACE" && rm -rf "old_$WORKSPACE" &
 
 mkdir -p "$WORKSPACE"
 mkdir -p "$SPLITS_DIR"
