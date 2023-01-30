@@ -5,7 +5,7 @@ cargo build --release
 
 export WORKSPACE="$1"
 export REPOS_DIRECTORY="$2"
-export CONCURRENCY="3"
+export CONCURRENCY="$3"
 
 export PACKAGES_PER_PARTITION="1000"
 export LIMIT="10"
@@ -43,4 +43,4 @@ fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 
 echo "running partitions"
 #parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
-parallel --progress --eta -P"$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"
+parallel --progress --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"
