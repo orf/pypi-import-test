@@ -1,21 +1,24 @@
 mod archive;
 mod data;
+mod writer;
 
 use crate::archive::{FileContent, PackageArchive};
 use crossbeam::thread;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, Write};
+use std::io::{BufReader};
 
 use anyhow::Context;
 use clap::Parser;
-use git2::{Buf, IndexEntry, IndexTime, ObjectType, Odb, Repository, Signature, Sort, Time};
+use git2::{Repository, Sort};
 use rayon::prelude::*;
 
 use std::path::PathBuf;
 
+
+use crate::writer::{consume_queue, TextFile};
 use chrono::{DateTime, Utc};
-use crossbeam::channel::unbounded;
+use crossbeam::channel::{bounded};
 use log::info;
 use url::Url;
 
@@ -182,20 +185,18 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
     let mempack_backend = object_db.add_new_mempack_backend(3).unwrap();
     let mut repo_idx = repo.index().unwrap();
 
-    let (sender, recv) = unbounded::<(JsonInput, Vec<IndexEntry>, String)>();
+    let (sender, recv) = bounded::<(JsonInput, Vec<TextFile>, String)>(20);
     info!("Starting");
 
     thread::scope(|s| {
         s.spawn(|_| {
             let sender = sender;
-            // let sender = sender.clone();
             items.into_par_iter().for_each(|item| {
                 let error_ctx = format!(
                     "Name: {}, version: {}, url: {}",
                     item.name, item.version, item.url
                 );
-
-                let idx = run(&object_db, item).context(error_ctx).unwrap();
+                let idx = run(item).context(error_ctx).unwrap();
                 if let Some(idx) = idx {
                     if sender.send(idx).is_err() {
                         // Ignore errors sending
@@ -204,60 +205,10 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
             });
         });
 
-        for (i, index, filename) in recv {
-            let signature = Signature::new(
-                "Tom Forbes",
-                "tom@tomforb.es",
-                &Time::new(i.uploaded_on.timestamp(), 0),
-            )
-            .unwrap();
-
-            info!("Starting adding {} entries", index.len());
-            info!(
-                "Total size: {}kb",
-                index.iter().map(|v| v.file_size).sum::<u32>() / 1024
-            );
-            for entry in index.iter() {
-                repo_idx.add(entry).unwrap();
-            }
-
-            info!("Added {} entries, writing tree", index.len());
-            let oid = repo_idx.write_tree().unwrap_or_else(|e| {
-                panic!("Error writing {} {} {}: {}", i.name, i.version, i.url, e)
-            });
-
-            info!("Written tree, fetching info from repo");
-            let tree = repo.find_tree(oid).unwrap();
-            let parent = match &repo.head() {
-                Ok(v) => Some(v.peel_to_commit().unwrap()),
-                Err(_) => None,
-            };
-            let parent = match &parent {
-                None => vec![],
-                Some(p) => vec![p],
-            };
-            info!("Committing info");
-            repo.commit(
-                Some("HEAD"),
-                &signature,
-                &signature,
-                format!("{} {} ({})", i.name, i.version, filename).as_str(),
-                &tree,
-                &parent,
-            )
-            .unwrap();
-            info!("Committed!");
-        }
+        consume_queue(&repo, &mut repo_idx, recv, &object_db, mempack_backend)
     })
     .unwrap();
 
-    let mut buf = Buf::new();
-    mempack_backend.dump(&repo, &mut buf).unwrap();
-
-    let mut writer = object_db.packwriter().unwrap();
-    writer.write_all(&buf).unwrap();
-    writer.commit().unwrap();
-    repo_idx.write().unwrap();
     Ok(())
 }
 
@@ -271,7 +222,7 @@ const IGNORED_SUFFIXES: &[&str] = &[
     ".dist-info/DESCRIPTION.rst",
 ];
 
-fn run(odb: &Odb, item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<IndexEntry>, String)>> {
+fn run(item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>, String)>> {
     let package_filename = item
         .url
         .path_segments()
@@ -301,8 +252,6 @@ fn run(odb: &Odb, item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<Inde
 
     let mut entries = Vec::with_capacity(1024);
 
-    let index_time = IndexTime::new(item.uploaded_on.timestamp() as i32, 0);
-
     for (file_name, content) in archive.all_items().flatten() {
         if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
             || file_name.contains("/.git/")
@@ -322,22 +271,10 @@ fn run(odb: &Odb, item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<Inde
         .replace("/./", "/")
         .replace("/../", "/");
         if let FileContent::Text(content) = content {
-            let oid = odb.write(ObjectType::Blob, &content).unwrap();
-            let entry = IndexEntry {
-                ctime: index_time,
-                mtime: index_time,
-                dev: 0,
-                ino: 0,
-                mode: 0o100644,
-                uid: 0,
-                gid: 0,
-                file_size: content.len() as u32,
-                id: oid,
-                flags: 0,
-                flags_extended: 0,
-                path: path.into(),
-            };
-            entries.push(entry);
+            entries.push(TextFile {
+                path,
+                contents: content,
+            });
             has_any_text_files = true;
         }
     }
