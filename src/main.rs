@@ -6,7 +6,7 @@ use crate::archive::{FileContent, PackageArchive};
 use crossbeam::thread;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader};
+use std::io::BufReader;
 
 use anyhow::Context;
 use clap::Parser;
@@ -15,10 +15,9 @@ use rayon::prelude::*;
 
 use std::path::PathBuf;
 
-
 use crate::writer::{consume_queue, TextFile};
 use chrono::{DateTime, Utc};
-use crossbeam::channel::{bounded};
+use crossbeam::channel::bounded;
 use log::info;
 use url::Url;
 
@@ -181,9 +180,6 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
             repo
         }
     };
-    let object_db = repo.odb().unwrap();
-    let mempack_backend = object_db.add_new_mempack_backend(3).unwrap();
-    let mut repo_idx = repo.index().unwrap();
 
     let (sender, recv) = bounded::<(JsonInput, Vec<TextFile>, String)>(20);
     info!("Starting");
@@ -205,7 +201,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
             });
         });
 
-        consume_queue(&repo, &mut repo_idx, recv, &object_db, mempack_backend)
+        consume_queue(&repo, recv)
     })
     .unwrap();
 

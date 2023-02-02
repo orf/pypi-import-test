@@ -1,51 +1,30 @@
 use crate::JsonInput;
 use crossbeam::channel::Receiver;
 use git2::{
-    Buf, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Repository,
-    Signature, Time,
+    Buf, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, OdbPackwriter, PackBuilder,
+    Repository, Signature, Time,
 };
 use log::info;
-use std::io::{Write};
+use std::any::Any;
+use std::io::Write;
 
+pub fn consume_queue(repo: &Repository, recv: Receiver<(JsonInput, Vec<TextFile>, String)>) {
+    let mut repo_idx = repo.index().unwrap();
 
-fn write_packfile(repo: &Repository, object_db: &Odb, mempack_backend: &Mempack) {
+    let object_db = repo.odb().unwrap();
+    let mempack_backend = object_db.add_new_mempack_backend(3).unwrap();
+
+    for (i, index, filename) in recv {
+        commit(repo, &mut repo_idx, &object_db, i, index, filename);
+    }
+
+    info!("Queue consumed, writing packfile");
     let mut buf = Buf::new();
-    mempack_backend.dump(repo, &mut buf).unwrap();
+    mempack_backend.dump(&repo, &mut buf).unwrap();
 
     let mut writer = object_db.packwriter().unwrap();
     writer.write_all(&buf).unwrap();
     writer.commit().unwrap();
-}
-
-pub fn consume_queue(
-    repo: &Repository,
-    repo_idx: &mut Index,
-    recv: Receiver<(JsonInput, Vec<TextFile>, String)>,
-    object_db: &Odb,
-    mempack_backend: Mempack,
-) {
-    let mut total_bytes = 0;
-    let _builder = repo.packbuilder().unwrap();
-    // let x = PackBuilder::name()
-    for (i, index, filename) in recv {
-        total_bytes += commit(repo, repo_idx, object_db, i, index, filename);
-        if total_bytes > 1024 * 1024 * 250 {
-            write_packfile(repo, object_db, &mempack_backend);
-            info!("Packfile written, resetting and unlocking");
-            mempack_backend.reset().unwrap();
-            object_db
-                .foreach(|v| {
-                    println!("Oids after reset: {v}");
-                    true
-                })
-                .unwrap();
-            total_bytes = 0;
-        }
-    }
-
-    info!("Queue consumed, writing packfile");
-    write_packfile(repo, object_db, &mempack_backend);
-    info!("Writing index");
     repo_idx.write().unwrap();
 }
 
@@ -56,10 +35,8 @@ pub fn commit(
     i: JsonInput,
     index: Vec<TextFile>,
     filename: String,
-    // builder: PackBuilder,
 ) -> usize {
     let index_time = IndexTime::new(i.uploaded_on.timestamp() as i32, 0);
-    // let oid = odb.write(ObjectType::Blob, &content).unwrap();
 
     let total_bytes = index.iter().map(|v| v.contents.len()).sum::<usize>();
     let signature = Signature::new(
@@ -108,15 +85,16 @@ pub fn commit(
         Some(p) => vec![p],
     };
     info!("Committing info");
-    repo.commit(
-        Some("HEAD"),
-        &signature,
-        &signature,
-        format!("{} {} ({})", i.name, i.version, filename).as_str(),
-        &tree,
-        &parent,
-    )
-    .unwrap();
+    repo
+        .commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            format!("{} {} ({})", i.name, i.version, filename).as_str(),
+            &tree,
+            &parent,
+        )
+        .unwrap();
     info!("Committed!");
 
     total_bytes
