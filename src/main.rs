@@ -1,20 +1,22 @@
 mod archive;
 mod data;
 
-use std::fs;
-use crossbeam::thread;
 use crate::archive::{FileContent, PackageArchive};
+use crossbeam::thread;
+use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Write};
 
 use anyhow::Context;
 use clap::Parser;
-use git2::{Buf, IndexEntry, IndexTime, ObjectType, Odb, Repository, Signature, Sort};
+use git2::{Buf, IndexEntry, IndexTime, ObjectType, Odb, Repository, Signature, Sort, Time};
 use rayon::prelude::*;
 
 use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
 use crossbeam::channel::unbounded;
+use log::info;
 use url::Url;
 
 #[derive(Parser)]
@@ -69,10 +71,12 @@ pub struct JsonInput {
     name: String,
     version: String,
     url: Url,
+    uploaded_on: DateTime<Utc>,
 }
 
 fn main() -> anyhow::Result<()> {
     let args: Cli = Cli::parse();
+    env_logger::init();
 
     match args.run_type {
         RunType::FromArgs {
@@ -81,7 +85,15 @@ fn main() -> anyhow::Result<()> {
             url,
             repo,
         } => {
-            run_multiple(&repo, vec![JsonInput { name, version, url }])?;
+            run_multiple(
+                &repo,
+                vec![JsonInput {
+                    name,
+                    version,
+                    url,
+                    uploaded_on: Default::default(),
+                }],
+            )?;
         }
         RunType::FromJson { input_file, repo } => {
             let reader = BufReader::new(File::open(input_file).unwrap());
@@ -171,10 +183,9 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
     let mut repo_idx = repo.index().unwrap();
 
     let (sender, recv) = unbounded::<(JsonInput, Vec<IndexEntry>, String)>();
+    info!("Starting");
 
     thread::scope(|s| {
-        let signature = Signature::now("Tom Forbes", "tom@tomforb.es").unwrap();
-
         s.spawn(|_| {
             let sender = sender;
             // let sender = sender.clone();
@@ -186,21 +197,36 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
 
                 let idx = run(&object_db, item).context(error_ctx).unwrap();
                 if let Some(idx) = idx {
-                    sender.send(idx).unwrap();
+                    if sender.send(idx).is_err() {
+                        // Ignore errors sending
+                    }
                 }
             });
         });
 
-        // let parent_commit = repo.head().map(|v| v.peel_to_commit().unwrap()).ok();
-
         for (i, index, filename) in recv {
+            let signature = Signature::new(
+                "Tom Forbes",
+                "tom@tomforb.es",
+                &Time::new(i.uploaded_on.timestamp(), 0),
+            )
+            .unwrap();
+
+            info!("Starting adding {} entries", index.len());
+            info!(
+                "Total size: {}kb",
+                index.iter().map(|v| v.file_size).sum::<u32>() / 1024
+            );
             for entry in index.iter() {
                 repo_idx.add(entry).unwrap();
             }
-            let oid = repo_idx
-                .write_tree()
-                .unwrap_or_else(|_| panic!("Error writing {} {} {}", i.name, i.version, i.url));
 
+            info!("Added {} entries, writing tree", index.len());
+            let oid = repo_idx.write_tree().unwrap_or_else(|e| {
+                panic!("Error writing {} {} {}: {}", i.name, i.version, i.url, e)
+            });
+
+            info!("Written tree, fetching info from repo");
             let tree = repo.find_tree(oid).unwrap();
             let parent = match &repo.head() {
                 Ok(v) => Some(v.peel_to_commit().unwrap()),
@@ -210,7 +236,8 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
                 None => vec![],
                 Some(p) => vec![p],
             };
-            let x = repo.commit(
+            info!("Committing info");
+            repo.commit(
                 Some("HEAD"),
                 &signature,
                 &signature,
@@ -218,15 +245,17 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
                 &tree,
                 &parent,
             )
-                .unwrap();
+            .unwrap();
+            info!("Committed!");
         }
-    }).unwrap();
+    })
+    .unwrap();
 
     let mut buf = Buf::new();
     mempack_backend.dump(&repo, &mut buf).unwrap();
 
     let mut writer = object_db.packwriter().unwrap();
-    writer.write(&buf).unwrap();
+    writer.write_all(&buf).unwrap();
     writer.commit().unwrap();
     repo_idx.write().unwrap();
     Ok(())
@@ -242,10 +271,7 @@ const IGNORED_SUFFIXES: &[&str] = &[
     ".dist-info/DESCRIPTION.rst",
 ];
 
-fn run(
-    odb: &Odb,
-    item: JsonInput,
-) -> anyhow::Result<Option<(JsonInput, Vec<IndexEntry>, String)>> {
+fn run(odb: &Odb, item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<IndexEntry>, String)>> {
     let package_filename = item
         .url
         .path_segments()
@@ -275,7 +301,7 @@ fn run(
 
     let mut entries = Vec::with_capacity(1024);
 
-    let index_time = IndexTime::new(0, 0);
+    let index_time = IndexTime::new(item.uploaded_on.timestamp() as i32, 0);
 
     for (file_name, content) in archive.all_items().flatten() {
         if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
@@ -293,11 +319,10 @@ fn run(
             "code/{}/{}/{}/{file_name}",
             item.name, item.version, reduced_package_filename
         )
-            .replace("/./", "/")
-            .replace("/../", "/");
+        .replace("/./", "/")
+        .replace("/../", "/");
         if let FileContent::Text(content) = content {
             let oid = odb.write(ObjectType::Blob, &content).unwrap();
-            // let oid = repo.blob(&content).unwrap();
             let entry = IndexEntry {
                 ctime: index_time,
                 mtime: index_time,

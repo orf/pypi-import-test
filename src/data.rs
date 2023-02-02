@@ -1,4 +1,5 @@
 use crate::JsonInput;
+use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use jwalk::{rayon, WalkDir};
 use rand::seq::SliceRandom;
@@ -19,6 +20,7 @@ struct Info {
 #[derive(Debug, Deserialize)]
 struct Url {
     url: String,
+    upload_time_iso_8601: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,17 +60,23 @@ pub fn extract_urls(dir: PathBuf, output_dir: PathBuf, limit: Option<usize>, fin
         let sorted_to_download = version
             .into_iter()
             .flat_map(|(_, v)| {
-                v.urls
-                    .into_iter()
-                    .map(move |v2| (v.info.name.clone(), v.info.version.clone(), v2.url))
+                v.urls.into_iter().map(move |v2| {
+                    (
+                        v.info.name.clone(),
+                        v.info.version.clone(),
+                        v2.url,
+                        v2.upload_time_iso_8601,
+                    )
+                })
             })
             .sorted_by_key(|v| v.1.clone());
         let packages_to_download: Vec<_> = sorted_to_download
             .into_iter()
-            .map(|(name, version, url)| JsonInput {
+            .map(|(name, version, url, dt)| JsonInput {
                 name,
                 version,
                 url: url.parse().unwrap(),
+                uploaded_on: dt,
             })
             .collect();
 

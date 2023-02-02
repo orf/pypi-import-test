@@ -25,9 +25,10 @@ mkdir -p "$URLS_DIR"
 mkdir -p "$PARTITIONS_DIR"
 
 echo "creating URLs"
-./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
+#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
-#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="django.json"
+./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
+#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"
 
 echo "creating index file"
 fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
@@ -43,4 +44,5 @@ fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 
 echo "running partitions"
 #parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
-parallel --progress --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"
+export RUST_LOG=info
+parallel -u --progress --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"
