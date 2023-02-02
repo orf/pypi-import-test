@@ -1,11 +1,8 @@
 use crate::JsonInput;
 use crossbeam::channel::Receiver;
-use git2::{
-    Buf, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, OdbPackwriter, PackBuilder,
-    Repository, Signature, Time,
-};
+use git2::{Buf, Index, IndexEntry, IndexTime, ObjectType, Odb, Repository, Signature, Time};
 use log::info;
-use std::any::Any;
+
 use std::io::Write;
 
 pub fn consume_queue(repo: &Repository, recv: Receiver<(JsonInput, Vec<TextFile>, String)>) {
@@ -20,7 +17,7 @@ pub fn consume_queue(repo: &Repository, recv: Receiver<(JsonInput, Vec<TextFile>
 
     info!("Queue consumed, writing packfile");
     let mut buf = Buf::new();
-    mempack_backend.dump(&repo, &mut buf).unwrap();
+    mempack_backend.dump(repo, &mut buf).unwrap();
 
     let mut writer = object_db.packwriter().unwrap();
     writer.write_all(&buf).unwrap();
@@ -85,16 +82,15 @@ pub fn commit(
         Some(p) => vec![p],
     };
     info!("Committing info");
-    repo
-        .commit(
-            Some("HEAD"),
-            &signature,
-            &signature,
-            format!("{} {} ({})", i.name, i.version, filename).as_str(),
-            &tree,
-            &parent,
-        )
-        .unwrap();
+    repo.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        format!("{} {} ({})", i.name, i.version, filename).as_str(),
+        &tree,
+        &parent,
+    )
+    .unwrap();
     info!("Committed!");
 
     total_bytes
