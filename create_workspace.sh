@@ -12,6 +12,7 @@ export LIMIT="10"
 
 export SPLITS_DIR="$WORKSPACE"/splits/
 export URLS_DIR="$WORKSPACE"/urls/
+export COMPLETED_DIR="$WORKSPACE"/completed/
 export INDEX_FILE="$WORKSPACE"/index
 export SPLITS_INDEX_FILE="$WORKSPACE"/splits-index
 export PARTITIONS_DIR="$WORKSPACE"/partitions/
@@ -24,6 +25,7 @@ mkdir -p "$WORKSPACE"
 mkdir -p "$SPLITS_DIR"
 mkdir -p "$URLS_DIR"
 mkdir -p "$PARTITIONS_DIR"
+mkdir -p "$COMPLETED_DIR"
 
 echo "creating URLs"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
@@ -47,4 +49,4 @@ fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 echo "running partitions"
 #parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
 export RUST_LOG=info
-parallel -u --progress --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"
+parallel -u --progress --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $COMPLETED_DIR/{/} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"

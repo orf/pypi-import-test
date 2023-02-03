@@ -4,7 +4,7 @@ mod writer;
 
 use crate::archive::{FileContent, PackageArchive};
 use crossbeam::thread;
-use std::fs;
+use std::{fs, io};
 use std::fs::File;
 use std::io::BufReader;
 
@@ -51,6 +51,9 @@ enum RunType {
         input_file: PathBuf,
 
         #[arg()]
+        result_file: PathBuf,
+
+        #[arg()]
         repo: PathBuf,
     },
     Combine {
@@ -79,6 +82,12 @@ pub struct JsonInput {
     uploaded_on: DateTime<Utc>,
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
+pub struct JsonOutput {
+    // name: String,
+    repo: PathBuf,
+}
+
 fn main() -> anyhow::Result<()> {
     let args: Cli = Cli::parse();
     env_logger::init();
@@ -100,10 +109,12 @@ fn main() -> anyhow::Result<()> {
                 }],
             )?;
         }
-        RunType::FromJson { input_file, repo } => {
+        RunType::FromJson { input_file, result_file, repo } => {
             let reader = BufReader::new(File::open(input_file).unwrap());
             let input: Vec<JsonInput> = serde_json::from_reader(reader).unwrap();
             run_multiple(&repo, input)?;
+            let writer = io::BufWriter::new(File::create(result_file).unwrap());
+            serde_json::to_writer(writer, &JsonOutput { repo }).unwrap();
         }
         RunType::CreateUrls {
             data,
@@ -176,7 +187,7 @@ fn main() -> anyhow::Result<()> {
                     ResetType::Soft,
                     None,
                 )
-                .unwrap();
+                    .unwrap();
                 info!("Rebased and reset {}", reference.refname().unwrap());
             }
         }
@@ -218,7 +229,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
 
         consume_queue(&repo, recv)
     })
-    .unwrap();
+        .unwrap();
 
     Ok(())
 }
@@ -279,8 +290,8 @@ fn run(item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>, Stri
             "code/{}/{}/{}/{file_name}",
             item.name, item.version, reduced_package_filename
         )
-        .replace("/./", "/")
-        .replace("/../", "/");
+            .replace("/./", "/")
+            .replace("/../", "/");
         if let FileContent::Text(content) = content {
             entries.push(TextFile {
                 path,
