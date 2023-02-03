@@ -28,6 +28,9 @@ chrono = { version = "0.4.23", features = ["serde"] }
 log = { version = "0.4.17", features=["release_max_level_info"]}
 env_logger = "0.10.0"
 
+[features]
+warn_log = ["log/release_max_level_warn"]
+
 [profile.release]
 codegen-units = 1
 lto = true

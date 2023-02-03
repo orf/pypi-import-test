@@ -1,7 +1,7 @@
 use crate::JsonInput;
 use crossbeam::channel::Receiver;
 use git2::{Buf, Index, IndexEntry, IndexTime, ObjectType, Odb, Repository, Signature, Time};
-use log::info;
+use log::{info, warn};
 
 use std::io::Write;
 
@@ -43,7 +43,7 @@ pub fn commit(
     )
     .unwrap();
 
-    info!("Starting adding {} entries", index.len());
+    warn!("Starting adding {} entries", index.len());
     info!("Total size: {}kb", total_bytes / 1024);
     let total = index.len();
     for text_file in index.into_iter() {
@@ -91,7 +91,7 @@ pub fn commit(
         &parent,
     )
     .unwrap();
-    info!("Committed!");
+    warn!("Committed {} entries", total);
 
     total_bytes
 }

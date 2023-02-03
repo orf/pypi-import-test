@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 
 export RUSTFLAGS="-Ctarget-cpu=native"
-cargo build --release
+cargo build --release -F warn_log
 
 export WORKSPACE="$1"
 export REPOS_DIRECTORY="$2"
@@ -28,8 +28,8 @@ mkdir -p "$PARTITIONS_DIR"
 mkdir -p "$COMPLETED_DIR"
 
 echo "creating URLs"
-#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
-./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
+./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
+#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="django.json"
@@ -48,5 +48,5 @@ fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 
 echo "running partitions"
 #parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
-export RUST_LOG=info
-parallel -u --progress --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $COMPLETED_DIR/{/} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"
+export RUST_LOG=warn
+parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $COMPLETED_DIR/{/} $PARTITIONS_DIR/{/} && echo DONE $PARTITIONS_DIR/{/}"

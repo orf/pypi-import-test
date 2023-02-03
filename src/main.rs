@@ -208,7 +208,6 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
     };
 
     let (sender, recv) = bounded::<(JsonInput, Vec<TextFile>, String)>(20);
-    info!("Starting");
 
     thread::scope(|s| {
         s.spawn(|_| {
