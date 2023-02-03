@@ -11,7 +11,7 @@ use std::io::BufReader;
 use anyhow::Context;
 use clap::Parser;
 use git2::{
-    Object, ObjectType, RebaseOperationType, RebaseOptions, Repository, ResetType, Signature, Sort,
+    ObjectType, RebaseOperationType, RebaseOptions, Repository, ResetType, Signature,
     Time,
 };
 use rayon::prelude::*;
@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
 
             for reference in commits_to_pick {
                 info!("Rebasing from {}", reference.refname().unwrap());
-                let mut local_ref = repo
+                let local_ref = repo
                     .reference_to_annotated_commit(&repo.head().unwrap())
                     .unwrap();
 
@@ -164,7 +164,7 @@ fn main() -> anyhow::Result<()> {
                             last_commit = Some(rebase.commit(None, &signature, None).unwrap());
                         }
                         _ => {
-                            panic!("unknown kind {:?}", kind);
+                            panic!("unknown kind {kind:?}");
                         }
                     }
                 }
