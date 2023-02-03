@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 
 export RUSTFLAGS="-Ctarget-cpu=native"
-cargo build --release
+cargo build --release -F warn_log
 
 export WORKSPACE="$1"
 export INPUT_GIT_DIR="$2"
@@ -18,5 +18,5 @@ mkdir -p "$WORKSPACE"
 echo "Creating step index"
 fd -a . "$INPUT_GIT_DIR" | shuf > "$INDEX_FILE"
 
-export RUST_LOG=info
+export RUST_LOG=warn
 parallel -u --progress --xargs -n"$PACKAGES_PER_PARTITION" -P"$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test combine ${COMBINED_DIR}/{#}/ {}"

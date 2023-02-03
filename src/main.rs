@@ -137,7 +137,8 @@ fn main() -> anyhow::Result<()> {
             let mut repo_idx = repo.index().unwrap();
             repo_idx.set_version(4).unwrap();
 
-            let commits_to_pick = target_repos.iter().enumerate().map(|(idx, target)| {
+            warn!("Fetching...");
+            let commits_to_pick = target_repos.iter().enumerate().filter_map(|(idx, target)| {
                 let target = fs::canonicalize(target).unwrap();
                 let remote_name = format!("import_{idx}");
                 let _ = repo.remote_delete(&remote_name);
@@ -147,23 +148,27 @@ fn main() -> anyhow::Result<()> {
                         format!("file://{}", target.to_str().unwrap()).as_str(),
                     )
                     .unwrap();
-                remote
+                warn!("Fetching remote {}", remote.url().unwrap());
+                if let Err(e) = remote
                     .fetch(
                         &[format!(
                             "refs/heads/master:refs/remotes/{remote_name}/master"
                         )],
                         None,
                         None,
-                    )
-                    .unwrap();
+                    ) {
+                    warn!("Error fetching remote: {}", e);
+                    return None
+                }
+                warn!("Fetched");
                 let reference = repo
                     .find_reference(format!("refs/remotes/{remote_name}/master").as_str())
                     .unwrap();
-                repo.reference_to_annotated_commit(&reference).unwrap()
+                Some(repo.reference_to_annotated_commit(&reference).unwrap())
             });
 
             for (idx, reference) in commits_to_pick.enumerate() {
-                warn!("Progress: {idx}/{}", target_repos.len());
+                warn!("Progress: {idx}/{}", target_repos.len() - 1);
                 info!("Rebasing from {}", reference.refname().unwrap());
                 let local_ref = match repo.head() {
                     //repo.find_branch("merge", BranchType::Local) {
@@ -196,7 +201,7 @@ fn main() -> anyhow::Result<()> {
                             last_commit = Some(rebase.commit(None, &signature, None).unwrap());
                         }
                         _ => {
-                            panic!("unknown kind {kind:?}");
+                            panic!("unknown rebase kind {kind:?}");
                         }
                     }
                 }
@@ -213,6 +218,7 @@ fn main() -> anyhow::Result<()> {
             warn!("Rebase done, resetting head");
             let head = repo.head().unwrap().peel_to_commit().unwrap();
             repo.branch("master", &head, true).unwrap();
+
             warn!("Dumping packfile");
             let mut buf = Buf::new();
             mempack_backend.dump(&repo, &mut buf).unwrap();
@@ -260,7 +266,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
 
         consume_queue(&repo, recv)
     })
-    .unwrap();
+        .unwrap();
 
     Ok(())
 }
@@ -321,8 +327,8 @@ fn run(item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>, Stri
             "code/{}/{}/{}/{file_name}",
             item.name, item.version, reduced_package_filename
         )
-        .replace("/./", "/")
-        .replace("/../", "/");
+            .replace("/./", "/")
+            .replace("/../", "/");
         if let FileContent::Text(content) = content {
             entries.push(TextFile {
                 path,
