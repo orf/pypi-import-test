@@ -19,4 +19,4 @@ echo "Creating step index"
 fd -a . "$INPUT_GIT_DIR" | shuf > "$INDEX_FILE"
 
 export RUST_LOG=warn
-parallel --progress --joblog=combine.log --results=combine_results/ --xargs -n"$PACKAGES_PER_PARTITION" -P"$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test combine ${COMBINED_DIR}/{#}/ {}"
+parallel --progress --joblog=combine.log --results=combine_results/ --xargs -n"$PACKAGES_PER_PARTITION" -P"$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test combine ${COMBINED_DIR}/{#}/ {} 2>&1"
