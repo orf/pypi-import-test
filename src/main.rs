@@ -10,7 +10,10 @@ use std::io::BufReader;
 
 use anyhow::Context;
 use clap::Parser;
-use git2::{Repository, Sort};
+use git2::{
+    Object, ObjectType, RebaseOperationType, RebaseOptions, Repository, ResetType, Signature, Sort,
+    Time,
+};
 use rayon::prelude::*;
 
 use std::path::PathBuf;
@@ -113,56 +116,68 @@ fn main() -> anyhow::Result<()> {
             target_repos,
         } => {
             let repo = Repository::open(base_repo).unwrap();
-            let commits_to_pick = target_repos
-                .iter()
-                .enumerate()
-                .flat_map(|(idx, target)| {
-                    let remote_name = format!("import_{idx}");
-                    let _ = repo.remote_delete(&remote_name);
-                    let mut remote = repo
-                        .remote(
-                            &remote_name,
-                            format!("file://{}", target.to_str().unwrap()).as_str(),
-                        )
-                        .unwrap();
-                    remote
-                        .fetch(
-                            &["refs/heads/master:refs/remotes/import/master".to_string()],
-                            None,
-                            None,
-                        )
-                        .unwrap();
-                    let reference = repo
-                        .find_reference(format!("refs/remotes/{remote_name}/master").as_str())
-                        .unwrap();
-                    let remote_ref = reference.peel_to_commit().unwrap();
-                    let mut walk = repo.revwalk().unwrap();
-                    walk.push(remote_ref.id()).unwrap();
-                    walk.set_sorting(Sort::REVERSE).unwrap();
-                    walk
-                })
-                .flatten();
+            let object_db = repo.odb().unwrap();
+            object_db.add_new_mempack_backend(3).unwrap();
 
-            let mut local_commit = repo.head().unwrap().peel_to_commit().unwrap();
-
-            for hash in commits_to_pick {
-                let to_commit = repo.find_commit(hash).unwrap();
-                let mut idx2 = repo
-                    .cherrypick_commit(&to_commit, &local_commit, 0, None)
-                    .unwrap();
-                let commit_tree_oid = idx2.write_tree_to(&repo).unwrap();
-                let commit_tree = repo.find_tree(commit_tree_oid).unwrap();
-                let rebased_commit_oid = repo
-                    .commit(
-                        Some("refs/heads/master"),
-                        &to_commit.author(),
-                        &to_commit.committer(),
-                        to_commit.message().unwrap(),
-                        &commit_tree,
-                        &[&local_commit],
+            let commits_to_pick = target_repos.iter().enumerate().map(|(idx, target)| {
+                let target = fs::canonicalize(target).unwrap();
+                let remote_name = format!("import_{idx}");
+                let _ = repo.remote_delete(&remote_name);
+                let mut remote = repo
+                    .remote(
+                        &remote_name,
+                        format!("file://{}", target.to_str().unwrap()).as_str(),
                     )
                     .unwrap();
-                local_commit = repo.find_commit(rebased_commit_oid).unwrap();
+                remote
+                    .fetch(
+                        &["refs/heads/master:refs/remotes/import/master".to_string()],
+                        None,
+                        None,
+                    )
+                    .unwrap();
+                let reference = repo
+                    .find_reference(format!("refs/remotes/{remote_name}/master").as_str())
+                    .unwrap();
+                repo.reference_to_annotated_commit(&reference).unwrap()
+            });
+
+            for reference in commits_to_pick {
+                info!("Rebasing from {}", reference.refname().unwrap());
+                let mut local_ref = repo
+                    .reference_to_annotated_commit(&repo.head().unwrap())
+                    .unwrap();
+
+                let mut opts = RebaseOptions::new();
+                opts.inmemory(true);
+                let mut rebase = repo
+                    .rebase(Some(&reference), Some(&local_ref), None, Some(&mut opts))
+                    .unwrap();
+                let signature =
+                    Signature::new("Tom Forbes", "tom@tomforb.es", &Time::new(0, 0)).unwrap();
+
+                let mut last_commit = None;
+                while let Some(x) = rebase.next() {
+                    let kind = x.unwrap().kind().unwrap();
+                    match kind {
+                        RebaseOperationType::Pick => {
+                            last_commit = Some(rebase.commit(None, &signature, None).unwrap());
+                        }
+                        _ => {
+                            panic!("unknown kind {:?}", kind);
+                        }
+                    }
+                }
+                rebase.finish(Some(&signature)).unwrap();
+                repo.reset(
+                    &repo
+                        .find_object(last_commit.unwrap(), Some(ObjectType::Commit))
+                        .unwrap(),
+                    ResetType::Soft,
+                    None,
+                )
+                .unwrap();
+                info!("Rebased and reset {}", reference.refname().unwrap());
             }
         }
     }
