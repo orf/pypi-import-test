@@ -160,7 +160,6 @@ fn main() -> anyhow::Result<()> {
                     warn!("Error fetching remote: {}", e);
                     return None
                 }
-                warn!("Fetched");
                 let reference = repo
                     .find_reference(format!("refs/remotes/{remote_name}/master").as_str())
                     .unwrap();

@@ -6,7 +6,7 @@ cargo build --release -F warn_log
 export WORKSPACE="$1"
 export INPUT_GIT_DIR="$2"
 export CONCURRENCY="$3"
-export PACKAGES_PER_PARTITION="10"
+export PACKAGES_PER_PARTITION="25"
 
 export COMBINED_DIR="$WORKSPACE"/combined
 export INDEX_FILE="$WORKSPACE"/index
