@@ -4,15 +4,15 @@ mod writer;
 
 use crate::archive::{FileContent, PackageArchive};
 use crossbeam::thread;
-use std::{fs, io};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Write};
+use std::{fs, io};
 
 use anyhow::Context;
 use clap::Parser;
 use git2::{
-    ObjectType, RebaseOperationType, RebaseOptions, Repository, ResetType, Signature,
-    Time,
+    Buf, RebaseOperationType, RebaseOptions,
+    Repository, RepositoryInitOptions, Signature, Time,
 };
 use rayon::prelude::*;
 
@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use crate::writer::{consume_queue, TextFile};
 use chrono::{DateTime, Utc};
 use crossbeam::channel::bounded;
-use log::info;
+use log::{info, warn};
 use url::Url;
 
 #[derive(Parser)]
@@ -109,7 +109,11 @@ fn main() -> anyhow::Result<()> {
                 }],
             )?;
         }
-        RunType::FromJson { input_file, result_file, repo } => {
+        RunType::FromJson {
+            input_file,
+            result_file,
+            repo,
+        } => {
             let reader = BufReader::new(File::open(input_file).unwrap());
             let input: Vec<JsonInput> = serde_json::from_reader(reader).unwrap();
             run_multiple(&repo, input)?;
@@ -126,9 +130,12 @@ fn main() -> anyhow::Result<()> {
             base_repo,
             target_repos,
         } => {
-            let repo = Repository::open(base_repo).unwrap();
+            let opts = RepositoryInitOptions::new();
+            let repo = Repository::init_opts(base_repo, &opts).unwrap();
             let object_db = repo.odb().unwrap();
-            object_db.add_new_mempack_backend(3).unwrap();
+            let mempack_backend = object_db.add_new_mempack_backend(3).unwrap();
+            let mut repo_idx = repo.index().unwrap();
+            repo_idx.set_version(4).unwrap();
 
             let commits_to_pick = target_repos.iter().enumerate().map(|(idx, target)| {
                 let target = fs::canonicalize(target).unwrap();
@@ -142,7 +149,9 @@ fn main() -> anyhow::Result<()> {
                     .unwrap();
                 remote
                     .fetch(
-                        &["refs/heads/master:refs/remotes/import/master".to_string()],
+                        &[format!(
+                            "refs/heads/master:refs/remotes/{remote_name}/master"
+                        )],
                         None,
                         None,
                     )
@@ -153,16 +162,28 @@ fn main() -> anyhow::Result<()> {
                 repo.reference_to_annotated_commit(&reference).unwrap()
             });
 
-            for reference in commits_to_pick {
+            for (idx, reference) in commits_to_pick.enumerate() {
+                warn!("Progress: {idx}/{}", target_repos.len());
                 info!("Rebasing from {}", reference.refname().unwrap());
-                let local_ref = repo
-                    .reference_to_annotated_commit(&repo.head().unwrap())
-                    .unwrap();
+                let local_ref = match repo.head() {
+                    //repo.find_branch("merge", BranchType::Local) {
+                    Ok(v) => repo.reference_to_annotated_commit(&v).unwrap(),
+                    Err(_) => {
+                        repo.set_head_detached(reference.id()).unwrap();
+                        continue;
+                    }
+                };
+                info!("Rebasing commit onto: {}", local_ref.id());
 
                 let mut opts = RebaseOptions::new();
                 opts.inmemory(true);
                 let mut rebase = repo
-                    .rebase(Some(&reference), Some(&local_ref), None, Some(&mut opts))
+                    .rebase(
+                        Some(&reference),
+                        Option::from(&local_ref),
+                        None,
+                        Some(&mut opts),
+                    )
                     .unwrap();
                 let signature =
                     Signature::new("Tom Forbes", "tom@tomforb.es", &Time::new(0, 0)).unwrap();
@@ -179,17 +200,28 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
                 }
-                rebase.finish(Some(&signature)).unwrap();
-                repo.reset(
-                    &repo
-                        .find_object(last_commit.unwrap(), Some(ObjectType::Commit))
-                        .unwrap(),
-                    ResetType::Soft,
-                    None,
-                )
-                    .unwrap();
-                info!("Rebased and reset {}", reference.refname().unwrap());
+                rebase.finish(None).unwrap();
+                let new_idx = rebase.inmemory_index().unwrap();
+                for item in new_idx.iter() {
+                    repo_idx.add(&item).unwrap();
+                }
+                let last_commit = repo.find_commit(last_commit.unwrap()).unwrap();
+
+                repo.set_head_detached(last_commit.id()).unwrap();
             }
+
+            warn!("Rebase done, resetting head");
+            let head = repo.head().unwrap().peel_to_commit().unwrap();
+            repo.branch("master", &head, true).unwrap();
+            warn!("Dumping packfile");
+            let mut buf = Buf::new();
+            mempack_backend.dump(&repo, &mut buf).unwrap();
+
+            let mut writer = object_db.packwriter().unwrap();
+            writer.write_all(&buf).unwrap();
+            writer.commit().unwrap();
+            warn!("Writing index");
+            repo_idx.write().unwrap();
         }
     }
     Ok(())
@@ -228,7 +260,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
 
         consume_queue(&repo, recv)
     })
-        .unwrap();
+    .unwrap();
 
     Ok(())
 }
@@ -289,8 +321,8 @@ fn run(item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>, Stri
             "code/{}/{}/{}/{file_name}",
             item.name, item.version, reduced_package_filename
         )
-            .replace("/./", "/")
-            .replace("/../", "/");
+        .replace("/./", "/")
+        .replace("/../", "/");
         if let FileContent::Text(content) = content {
             entries.push(TextFile {
                 path,
