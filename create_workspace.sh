@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 
 export RUSTFLAGS="-Ctarget-cpu=native"
-cargo build --release -F warn_log
+cargo build --release
 
 export WORKSPACE="$1"
 export REPOS_DIRECTORY="$2"
@@ -12,10 +12,10 @@ export LIMIT="100"
 
 export SPLITS_DIR="$WORKSPACE"/splits/
 export URLS_DIR="$WORKSPACE"/urls/
-export COMPLETED_DIR="$WORKSPACE"/completed/
 export INDEX_FILE="$WORKSPACE"/index
 export SPLITS_INDEX_FILE="$WORKSPACE"/splits-index
 export PARTITIONS_DIR="$WORKSPACE"/partitions/
+export TEMP_DIR="$WORKSPACE"/temp/
 
 echo "Removing existing workspace"
 #mv "$WORKSPACE" "old_$WORKSPACE" && rm -rf "old_$WORKSPACE" &
@@ -25,14 +25,14 @@ mkdir -p "$WORKSPACE"
 mkdir -p "$SPLITS_DIR"
 mkdir -p "$URLS_DIR"
 mkdir -p "$PARTITIONS_DIR"
-mkdir -p "$COMPLETED_DIR"
+mkdir -p "$TEMP_DIR"
 
 echo "creating URLs"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
-./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
+#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"
-#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="django.json"
+./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --find="$(cat tests/debug.txt)"
 
 echo "creating index file"
 fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
@@ -48,5 +48,5 @@ fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 
 echo "running partitions"
 #parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
-export RUST_LOG=warn
-parallel --progress --joblog=job.log --results=results/ --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $COMPLETED_DIR/{/} $PARTITIONS_DIR/{/} 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
+export RUST_LOG=info
+parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} 2>&1 && echo DONE $PARTITIONS_DIR/{/}"

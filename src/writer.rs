@@ -1,18 +1,20 @@
 use crate::JsonInput;
 use crossbeam::channel::Receiver;
-use git2::{Buf, Index, IndexEntry, IndexTime, ObjectType, Odb, Repository, Signature, Time};
+use git2::{Buf, Index, IndexEntry, IndexTime, Mempack, Odb, Oid, Repository, Signature, Time};
 use log::{info, warn};
 
 use std::io::Write;
 
-pub fn consume_queue(repo: &Repository, recv: Receiver<(JsonInput, Vec<TextFile>, String)>) {
+pub fn consume_queue(
+    repo: &Repository,
+    object_db: &Odb,
+    mempack_backend: Mempack,
+    recv: Receiver<(JsonInput, Vec<TextFile>)>,
+) {
     let mut repo_idx = repo.index().unwrap();
 
-    let object_db = repo.odb().unwrap();
-    let mempack_backend = object_db.add_new_mempack_backend(3).unwrap();
-
-    for (i, index, filename) in recv {
-        commit(repo, &mut repo_idx, &object_db, i, index, filename);
+    for (i, index) in recv {
+        commit(repo, &mut repo_idx, i, index);
     }
 
     info!("Queue consumed, writing packfile");
@@ -28,14 +30,12 @@ pub fn consume_queue(repo: &Repository, recv: Receiver<(JsonInput, Vec<TextFile>
 pub fn commit(
     repo: &Repository,
     repo_idx: &mut Index,
-    odb: &Odb,
     i: JsonInput,
     index: Vec<TextFile>,
-    filename: String,
 ) -> usize {
+    let filename = i.package_filename();
     let index_time = IndexTime::new(i.uploaded_on.timestamp() as i32, 0);
-
-    let total_bytes = index.iter().map(|v| v.contents.len()).sum::<usize>();
+    let total_bytes = index.iter().map(|v| v.size).sum::<usize>();
     let signature = Signature::new(
         "Tom Forbes",
         "tom@tomforb.es",
@@ -47,7 +47,6 @@ pub fn commit(
     info!("Total size: {}kb", total_bytes / 1024);
     let total = index.len();
     for text_file in index.into_iter() {
-        let oid = odb.write(ObjectType::Blob, &text_file.contents).unwrap();
         let entry = IndexEntry {
             ctime: index_time,
             mtime: index_time,
@@ -56,11 +55,11 @@ pub fn commit(
             mode: 0o100644,
             uid: 0,
             gid: 0,
-            file_size: text_file.contents.len() as u32,
-            id: oid,
+            file_size: text_file.size as u32,
+            id: text_file.oid,
             flags: 0,
             flags_extended: 0,
-            path: text_file.path.into_bytes(),
+            path: text_file.path,
         };
         repo_idx.add(&entry).unwrap();
     }
@@ -97,10 +96,7 @@ pub fn commit(
 }
 
 pub struct TextFile {
-    pub path: String,
-    pub contents: Vec<u8>,
+    pub path: Vec<u8>,
+    pub oid: Oid,
+    pub size: usize,
 }
-
-// impl TextFile {
-//     pub fn add(self, odb: &) {}
-// }

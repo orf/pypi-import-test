@@ -4,15 +4,15 @@ mod writer;
 
 use crate::archive::{FileContent, PackageArchive};
 use crossbeam::thread;
+use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Write};
-use std::{fs, io};
 
 use anyhow::Context;
 use clap::Parser;
 use git2::{
-    Buf, RebaseOperationType, RebaseOptions,
-    Repository, RepositoryInitOptions, Signature, Time,
+    Buf, ObjectType, Odb, RebaseOperationType, RebaseOptions, Repository, RepositoryInitOptions,
+    Signature, Time,
 };
 use rayon::prelude::*;
 
@@ -51,10 +51,10 @@ enum RunType {
         input_file: PathBuf,
 
         #[arg()]
-        result_file: PathBuf,
+        work_path: PathBuf,
 
         #[arg()]
-        repo: PathBuf,
+        finished_path: PathBuf,
     },
     Combine {
         #[arg()]
@@ -82,10 +82,10 @@ pub struct JsonInput {
     uploaded_on: DateTime<Utc>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-pub struct JsonOutput {
-    // name: String,
-    repo: PathBuf,
+impl JsonInput {
+    pub fn package_filename(&self) -> &str {
+        self.url.path_segments().unwrap().last().unwrap()
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -111,14 +111,17 @@ fn main() -> anyhow::Result<()> {
         }
         RunType::FromJson {
             input_file,
-            result_file,
-            repo,
+            work_path,
+            finished_path,
         } => {
+            fs::create_dir(&work_path).unwrap();
+            let work_path = fs::canonicalize(&work_path).unwrap();
+
             let reader = BufReader::new(File::open(input_file).unwrap());
             let input: Vec<JsonInput> = serde_json::from_reader(reader).unwrap();
-            run_multiple(&repo, input)?;
-            let writer = io::BufWriter::new(File::create(result_file).unwrap());
-            serde_json::to_writer(writer, &JsonOutput { repo }).unwrap();
+            run_multiple(&work_path, input)?;
+            fs::create_dir(&finished_path).unwrap();
+            fs::rename(&work_path, &finished_path).unwrap();
         }
         RunType::CreateUrls {
             data,
@@ -149,16 +152,15 @@ fn main() -> anyhow::Result<()> {
                     )
                     .unwrap();
                 warn!("Fetching remote {}", remote.url().unwrap());
-                if let Err(e) = remote
-                    .fetch(
-                        &[format!(
-                            "refs/heads/master:refs/remotes/{remote_name}/master"
-                        )],
-                        None,
-                        None,
-                    ) {
+                if let Err(e) = remote.fetch(
+                    &[format!(
+                        "refs/heads/master:refs/remotes/{remote_name}/master"
+                    )],
+                    None,
+                    None,
+                ) {
                     warn!("Error fetching remote: {}", e);
-                    return None
+                    return None;
                 }
                 let reference = repo
                     .find_reference(format!("refs/remotes/{remote_name}/master").as_str())
@@ -244,7 +246,10 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
         }
     };
 
-    let (sender, recv) = bounded::<(JsonInput, Vec<TextFile>, String)>(20);
+    let (sender, recv) = bounded::<(JsonInput, Vec<TextFile>)>(20);
+
+    let odb = repo.odb().unwrap();
+    let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
 
     thread::scope(|s| {
         s.spawn(|_| {
@@ -254,18 +259,19 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
                     "Name: {}, version: {}, url: {}",
                     item.name, item.version, item.url
                 );
-                let idx = run(item).context(error_ctx).unwrap();
+                let idx = run(item, &odb).context(error_ctx).unwrap();
                 if let Some(idx) = idx {
                     if sender.send(idx).is_err() {
                         // Ignore errors sending
                     }
                 }
             });
+            info!("Finished par iter");
         });
 
-        consume_queue(&repo, recv)
+        consume_queue(&repo, &odb, mempack_backend, recv)
     })
-        .unwrap();
+    .unwrap();
 
     Ok(())
 }
@@ -280,14 +286,16 @@ const IGNORED_SUFFIXES: &[&str] = &[
     ".dist-info/DESCRIPTION.rst",
 ];
 
-fn run(item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>, String)>> {
-    let package_filename = item
-        .url
-        .path_segments()
-        .unwrap()
-        .last()
-        .unwrap()
-        .to_string();
+fn run(item: JsonInput, repo_odb: &Odb) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>)>> {
+    let package_filename = item.package_filename();
+    // let odb = Odb::new().unwrap();
+    // odb.add_new_mempack_backend(3).unwrap();
+    let new_repo = Repository::from_odb(Odb::new().unwrap()).unwrap();
+    let odb = new_repo.odb().unwrap();
+    odb.add_new_mempack_backend(3).unwrap();
+    let mut pack = new_repo.packbuilder().unwrap();
+    pack.set_threads(1);
+
     let package_extension = package_filename.rsplit('.').next().unwrap();
     // The package filename contains the package name and the version. We don't need this in the output, so just ignore it.
     // The format is `{name}-{version}-{rest}`, so we strip out `rest`
@@ -326,13 +334,16 @@ fn run(item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>, Stri
             "code/{}/{}/{}/{file_name}",
             item.name, item.version, reduced_package_filename
         )
-            .replace("/./", "/")
-            .replace("/../", "/");
+        .replace("/./", "/")
+        .replace("/../", "/");
         if let FileContent::Text(content) = content {
+            let oid = odb.write(ObjectType::Blob, &content).unwrap();
             entries.push(TextFile {
-                path,
-                contents: content,
+                path: path.into_bytes(),
+                oid,
+                size: content.len(),
             });
+            pack.insert_object(oid, None).unwrap();
             has_any_text_files = true;
         }
     }
@@ -341,5 +352,12 @@ fn run(item: JsonInput) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>, Stri
         return Ok(None);
     }
 
-    Ok(Some((item, entries, package_filename.to_string())))
+    let mut buf = Buf::new();
+    pack.write_buf(&mut buf).unwrap();
+
+    let mut writer = repo_odb.packwriter().unwrap();
+    writer.write_all(&buf).unwrap();
+    writer.commit().unwrap();
+
+    Ok(Some((item, entries)))
 }

@@ -30,6 +30,13 @@ struct PackageVersion {
 }
 
 pub fn extract_urls(dir: PathBuf, output_dir: PathBuf, limit: Option<usize>, find: Option<String>) {
+    let find = find.map(|v| {
+        v.split(' ')
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string())
+            .collect::<Vec<String>>()
+    });
+
     let files_iter = WalkDir::new(dir)
         .min_depth(2)
         .into_iter()
@@ -40,8 +47,12 @@ pub fn extract_urls(dir: PathBuf, output_dir: PathBuf, limit: Option<usize>, fin
 
     let mut files: Vec<_> = match find {
         None => files_iter.collect(),
-        Some(f) => files_iter
-            .filter(|e| e.file_name.to_str().unwrap().starts_with(&f))
+        Some(matches) => files_iter
+            .filter(|e| {
+                matches
+                    .iter()
+                    .any(|m| e.file_name.to_str().unwrap().starts_with(m))
+            })
             .collect(),
     };
 
