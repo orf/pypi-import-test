@@ -293,6 +293,7 @@ fn run(item: JsonInput, repo_odb: &Odb) -> anyhow::Result<Option<(JsonInput, Vec
     let new_repo = Repository::from_odb(Odb::new().unwrap()).unwrap();
     let odb = new_repo.odb().unwrap();
     odb.add_new_mempack_backend(3).unwrap();
+
     let mut pack = new_repo.packbuilder().unwrap();
     pack.set_threads(1);
 
