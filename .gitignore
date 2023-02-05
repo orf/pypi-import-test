@@ -3,4 +3,4 @@
 tests/
 results/
 *.log
-workspace/
+workspace*/
