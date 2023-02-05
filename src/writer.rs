@@ -43,7 +43,7 @@ pub fn commit(
     warn!(
         "[{} {}/{}] Starting adding {} entries ({} mb)",
         job_info,
-        job_info.chunk,
+        job_info.total,
         i.index,
         index.len(),
         total_bytes / 1024 / 1024
@@ -95,7 +95,7 @@ pub fn commit(
     .unwrap();
     warn!(
         "[{} {}/{}] Committed {} entries",
-        job_info, job_info.chunk, i.index, total
+        job_info, job_info.total, i.index, total
     );
 
     total_bytes
@@ -182,6 +182,8 @@ pub fn run<'a>(
     if !has_any_text_files {
         return Ok(None);
     }
+
+    warn!("[{} {}/{}] Finished iterating", info, info.total, item.index);
 
     Ok(Some((info, item, entries)))
 }
