@@ -43,8 +43,12 @@ pub fn commit(
     )
     .unwrap();
 
-    warn!("Starting adding {} entries", index.len());
-    info!("Total size: {}kb", total_bytes / 1024);
+    warn!(
+        "[{}] Starting adding {} entries ({} mb)",
+        i.name,
+        index.len(),
+        total_bytes / 1024 / 1024
+    );
     let total = index.len();
     for text_file in index.into_iter() {
         let entry = IndexEntry {
@@ -64,12 +68,10 @@ pub fn commit(
         repo_idx.add(&entry).unwrap();
     }
 
-    info!("Added {} entries, writing tree", total);
     let oid = repo_idx
         .write_tree()
         .unwrap_or_else(|e| panic!("Error writing {} {} {}: {}", i.name, i.version, i.url, e));
 
-    info!("Written tree, fetching info from repo");
     let tree = repo.find_tree(oid).unwrap();
 
     let parent = match &repo.head() {
@@ -80,7 +82,6 @@ pub fn commit(
         None => vec![],
         Some(p) => vec![p],
     };
-    info!("Committing info");
     repo.commit(
         Some("HEAD"),
         &signature,
@@ -90,7 +91,7 @@ pub fn commit(
         &parent,
     )
     .unwrap();
-    warn!("Committed {} entries", total);
+    warn!("[{}] Committed {} entries", i.name, total);
 
     total_bytes
 }

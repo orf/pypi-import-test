@@ -22,6 +22,7 @@ use crate::writer::{consume_queue, TextFile};
 use chrono::{DateTime, Utc};
 use crossbeam::channel::bounded;
 use log::{info, warn};
+use reqwest::blocking::Client;
 use url::Url;
 
 #[derive(Parser)]
@@ -257,24 +258,26 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
     thread::scope(|s| {
         s.spawn(|_| {
             let sender = sender;
-            items.into_par_iter().for_each(|item| {
-                let error_ctx = format!(
-                    "Name: {}, version: {}, url: {}",
-                    item.name, item.version, item.url
-                );
-                let idx = run(item, &odb).context(error_ctx).unwrap();
-                if let Some(idx) = idx {
-                    if sender.send(idx).is_err() {
-                        // Ignore errors sending
+            items.into_par_iter().enumerate().for_each_init(
+                Client::new,
+                |client, (idx, item)| {
+                    let error_ctx = format!(
+                        "Name: {}, version: {}, url: {}",
+                        item.name, item.version, item.url
+                    );
+                    let idx = run(client, idx, item, &odb).context(error_ctx).unwrap();
+                    if let Some(idx) = idx {
+                        if sender.send(idx).is_err() {
+                            // Ignore errors sending
+                        }
                     }
-                }
-            });
-            info!("Finished par iter");
+                },
+            );
         });
 
         consume_queue(&repo, &odb, mempack_backend, recv)
     })
-        .unwrap();
+    .unwrap();
 
     Ok(())
 }
@@ -289,10 +292,15 @@ const IGNORED_SUFFIXES: &[&str] = &[
     ".dist-info/DESCRIPTION.rst",
 ];
 
-fn run(item: JsonInput, repo_odb: &Odb) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>)>> {
+fn run(
+    client: &mut Client,
+    idx: usize,
+    item: JsonInput,
+    repo_odb: &Odb,
+) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>)>> {
+    warn!("[{}/{}] Starting", item.name, idx);
     let package_filename = item.package_filename();
-    // let odb = Odb::new().unwrap();
-    // odb.add_new_mempack_backend(3).unwrap();
+
     let new_repo = Repository::from_odb(Odb::new().unwrap()).unwrap();
     let odb = new_repo.odb().unwrap();
     odb.add_new_mempack_backend(3).unwrap();
@@ -310,7 +318,7 @@ fn run(item: JsonInput, repo_odb: &Odb) -> anyhow::Result<Option<(JsonInput, Vec
     // so we detect this and strip the prefix.
     let tar_gz_first_segment = format!("{}-{}/", item.name, item.version);
 
-    let download_response = reqwest::blocking::get(item.url.clone())?;
+    let download_response = client.get(item.url.clone()).send()?;
     let mut archive = match PackageArchive::new(package_extension, download_response) {
         None => {
             return Ok(None);
@@ -321,6 +329,8 @@ fn run(item: JsonInput, repo_odb: &Odb) -> anyhow::Result<Option<(JsonInput, Vec
     let mut has_any_text_files = false;
 
     let mut entries = Vec::with_capacity(1024);
+
+    warn!("[{}/{}] Begin iterating", item.name, idx);
 
     for (file_name, content) in archive.all_items().flatten() {
         if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
@@ -338,8 +348,8 @@ fn run(item: JsonInput, repo_odb: &Odb) -> anyhow::Result<Option<(JsonInput, Vec
             "code/{}/{}/{}/{file_name}",
             item.name, item.version, reduced_package_filename
         )
-            .replace("/./", "/")
-            .replace("/../", "/");
+        .replace("/./", "/")
+        .replace("/../", "/");
         if let FileContent::Text(content) = content {
             let oid = odb.write(ObjectType::Blob, &content).unwrap();
             entries.push(TextFile {
@@ -356,12 +366,15 @@ fn run(item: JsonInput, repo_odb: &Odb) -> anyhow::Result<Option<(JsonInput, Vec
         return Ok(None);
     }
 
+    warn!("[{}/{}] writing buf", item.name, idx);
     let mut buf = Buf::new();
     pack.write_buf(&mut buf).unwrap();
 
     let mut writer = repo_odb.packwriter().unwrap();
     writer.write_all(&buf).unwrap();
     writer.commit().unwrap();
+
+    warn!("[{}/{}] buf written", item.name, idx);
 
     Ok(Some((item, entries)))
 }
