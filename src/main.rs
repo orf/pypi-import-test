@@ -11,16 +11,17 @@ use std::io::{BufReader, Write};
 use anyhow::Context;
 use clap::Parser;
 use git2::{
-    Buf, IndexEntry, IndexTime, ObjectType, Odb, RebaseOperationType, RebaseOptions, Repository,
-    RepositoryInitOptions, Signature, Time,
+    Buf, ObjectType, Odb, RebaseOperationType, RebaseOptions, Repository, RepositoryInitOptions,
+    Signature, Time,
 };
 use rayon::prelude::*;
 
 use std::path::PathBuf;
 
-use crate::writer::{consume_queue, TextFile};
-use chrono::{DateTime, Utc};
+use crate::data::{DownloadJob, JobInfo};
+use crate::writer::{commit, flush_repo, TextFile};
 use crossbeam::channel::bounded;
+use data::PackageInfo;
 use log::{info, warn};
 use reqwest::blocking::Client;
 use url::Url;
@@ -72,21 +73,9 @@ enum RunType {
         limit: Option<usize>,
         #[arg(long, short)]
         find: Option<String>,
+        #[arg(long, short, default_value = "500")]
+        split: usize,
     },
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-pub struct JsonInput {
-    name: String,
-    version: String,
-    url: Url,
-    uploaded_on: DateTime<Utc>,
-}
-
-impl JsonInput {
-    pub fn package_filename(&self) -> &str {
-        self.url.path_segments().unwrap().last().unwrap()
-    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -102,12 +91,19 @@ fn main() -> anyhow::Result<()> {
         } => {
             run_multiple(
                 &repo,
-                vec![JsonInput {
-                    name,
-                    version,
-                    url,
-                    uploaded_on: Default::default(),
-                }],
+                DownloadJob {
+                    info: JobInfo {
+                        name,
+                        total: 1,
+                        chunk: 0,
+                    },
+                    packages: vec![PackageInfo {
+                        version,
+                        url,
+                        index: 0,
+                        uploaded_on: Default::default(),
+                    }],
+                },
             )?;
         }
         RunType::FromJson {
@@ -119,7 +115,7 @@ fn main() -> anyhow::Result<()> {
             let work_path = fs::canonicalize(&work_path).unwrap();
 
             let reader = BufReader::new(File::open(input_file).unwrap());
-            let input: Vec<JsonInput> = serde_json::from_reader(reader).unwrap();
+            let input: DownloadJob = serde_json::from_reader(reader).unwrap();
             run_multiple(&work_path, input)?;
             fs::create_dir(&finished_path).unwrap();
             fs::rename(&work_path, &finished_path).unwrap();
@@ -129,7 +125,8 @@ fn main() -> anyhow::Result<()> {
             output_dir,
             limit,
             find,
-        } => data::extract_urls(data, output_dir, limit, find),
+            split,
+        } => data::extract_urls(data, output_dir, limit, find, split),
         RunType::Combine {
             base_repo,
             target_repos,
@@ -235,7 +232,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()> {
+fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<()> {
     git2::opts::strict_object_creation(false);
     git2::opts::strict_hash_verification(false);
 
@@ -250,23 +247,25 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
         }
     };
 
-    let (sender, recv) = bounded::<(JsonInput, Vec<TextFile>)>(20);
+    let (sender, recv) = bounded::<(&JobInfo, PackageInfo, Vec<TextFile>)>(20);
 
     let odb = repo.odb().unwrap();
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
+    let mut repo_idx = repo.index().unwrap();
 
     thread::scope(|s| {
         s.spawn(|_| {
             let sender = sender;
-            items
+            job.packages
                 .into_par_iter()
-                .enumerate()
-                .for_each_init(Client::new, |client, (idx, item)| {
+                .for_each_init(Client::new, |client, item| {
                     let error_ctx = format!(
                         "Name: {}, version: {}, url: {}",
-                        item.name, item.version, item.url
+                        job.info.name, item.version, item.url
                     );
-                    let idx = run(client, idx, item, &odb).context(error_ctx).unwrap();
+                    let idx = writer::run(client, &job.info, item, &odb)
+                        .context(error_ctx)
+                        .unwrap();
                     if let Some(idx) = idx {
                         if sender.send(idx).is_err() {
                             // Ignore errors sending
@@ -275,126 +274,13 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
                 });
         });
 
-        consume_queue(&repo, &odb, mempack_backend, recv)
+        for (job_info, package_info, index) in recv {
+            commit(&repo, &mut repo_idx, job_info, package_info, index);
+        }
+        flush_repo(&repo,  repo_idx, &odb, mempack_backend);
+        // consume_queue(&repo, &odb, mempack_backend, recv)
     })
-    .unwrap();
+        .unwrap();
 
     Ok(())
-}
-
-const IGNORED_SUFFIXES: &[&str] = &[
-    // Skip METADATA files. These can contain gigantic readme files which can bloat the repo?
-    ".dist-info/METADATA",
-    // Same for license files
-    ".dist-info/LICENSE",
-    ".dist-info/RECORD",
-    ".dist-info/TOP_LEVEL",
-    ".dist-info/DESCRIPTION.rst",
-];
-
-fn run(
-    client: &mut Client,
-    idx: usize,
-    item: JsonInput,
-    repo_odb: &Odb,
-) -> anyhow::Result<Option<(JsonInput, Vec<TextFile>)>> {
-    warn!("[{}/{}] Starting", item.name, idx);
-    let package_filename = item.package_filename();
-
-    let new_repo = Repository::from_odb(Odb::new().unwrap()).unwrap();
-    let odb = new_repo.odb().unwrap();
-    odb.add_new_mempack_backend(3).unwrap();
-    let mut new_repo_idx = new_repo.index().unwrap();
-
-    let mut pack = new_repo.packbuilder().unwrap();
-    pack.set_threads(1);
-
-    let package_extension = package_filename.rsplit('.').next().unwrap();
-    // The package filename contains the package name and the version. We don't need this in the output, so just ignore it.
-    // The format is `{name}-{version}-{rest}`, so we strip out `rest`
-    let reduced_package_filename =
-        &package_filename[(item.name.len() + 1 + item.version.len() + 1)..];
-
-    // .tar.gz files unwrap all contents to paths like `Django-1.10rc1/...`. This isn't great,
-    // so we detect this and strip the prefix.
-    let tar_gz_first_segment = format!("{}-{}/", item.name, item.version);
-
-    let download_response = client.get(item.url.clone()).send()?;
-    let mut archive = match PackageArchive::new(package_extension, download_response) {
-        None => {
-            return Ok(None);
-        }
-        Some(v) => v,
-    };
-
-    let mut has_any_text_files = false;
-
-    let mut entries = Vec::with_capacity(1024);
-    let index_time = IndexTime::new(item.uploaded_on.timestamp() as i32, 0);
-    warn!("[{}/{}] Begin iterating", item.name, idx);
-
-    for (file_name, content) in archive.all_items().flatten() {
-        if let FileContent::Text(content) = content {
-            if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
-                || file_name.contains("/.git/")
-                || file_name.ends_with("/.git")
-            {
-                continue;
-            }
-            let file_name = if file_name.starts_with(&tar_gz_first_segment) {
-                &file_name[tar_gz_first_segment.len()..]
-            } else {
-                &*file_name
-            };
-            let path = format!(
-                "code/{}/{}/{}/{file_name}",
-                item.name, item.version, reduced_package_filename
-            )
-            .replace("/./", "/")
-            .replace("/../", "/");
-
-            let oid = odb.write(ObjectType::Blob, &content).unwrap();
-            let entry = IndexEntry {
-                ctime: index_time,
-                mtime: index_time,
-                dev: 0,
-                ino: 0,
-                mode: 0o100644,
-                uid: 0,
-                gid: 0,
-                file_size: content.len() as u32,
-                id: oid,
-                flags: 0,
-                flags_extended: 0,
-                path: path.as_bytes().to_vec(),
-            };
-            new_repo_idx.add(&entry).unwrap();
-            entries.push(TextFile {
-                path: path.into_bytes(),
-                oid,
-                size: content.len(),
-            });
-            has_any_text_files = true;
-        }
-    }
-
-    if !has_any_text_files {
-        return Ok(None);
-    }
-
-    warn!("[{}/{}] inserting tree recursive", item.name, idx);
-    let tree_oid = new_repo_idx.write_tree().unwrap();
-    pack.insert_recursive(tree_oid, None).unwrap();
-
-    warn!("[{}/{}] writing buf", item.name, idx);
-    let mut buf = Buf::new();
-    pack.write_buf(&mut buf).unwrap();
-
-    let mut writer = repo_odb.packwriter().unwrap();
-    writer.write_all(&buf).unwrap();
-    writer.commit().unwrap();
-
-    warn!("[{}/{}] buf written", item.name, idx);
-
-    Ok(Some((item, entries)))
 }

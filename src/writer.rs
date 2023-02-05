@@ -1,22 +1,18 @@
-use crate::JsonInput;
+use crate::data::{JobInfo, PackageInfo};
 use crossbeam::channel::Receiver;
-use git2::{Buf, Index, IndexEntry, IndexTime, Mempack, Odb, Oid, Repository, Signature, Time};
+use git2::{Buf, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Oid, Repository, Signature, Time};
 use log::{info, warn};
 
 use std::io::Write;
+use reqwest::blocking::Client;
+use crate::archive::{FileContent, PackageArchive};
 
-pub fn consume_queue(
+pub fn flush_repo(
     repo: &Repository,
+    mut repo_idx: Index,
     object_db: &Odb,
     mempack_backend: Mempack,
-    recv: Receiver<(JsonInput, Vec<TextFile>)>,
 ) {
-    let mut repo_idx = repo.index().unwrap();
-
-    for (i, index) in recv {
-        commit(repo, &mut repo_idx, i, index);
-    }
-
     info!("Queue consumed, writing packfile");
     let mut buf = Buf::new();
     mempack_backend.dump(repo, &mut buf).unwrap();
@@ -30,7 +26,8 @@ pub fn consume_queue(
 pub fn commit(
     repo: &Repository,
     repo_idx: &mut Index,
-    i: JsonInput,
+    job_info: &JobInfo,
+    i: PackageInfo,
     index: Vec<TextFile>,
 ) -> usize {
     let filename = i.package_filename();
@@ -44,8 +41,10 @@ pub fn commit(
     .unwrap();
 
     warn!(
-        "[{}] Starting adding {} entries ({} mb)",
-        i.name,
+        "[{} {}/{}] Starting adding {} entries ({} mb)",
+        job_info,
+        job_info.chunk,
+        i.index,
         index.len(),
         total_bytes / 1024 / 1024
     );
@@ -68,9 +67,12 @@ pub fn commit(
         repo_idx.add(&entry).unwrap();
     }
 
-    let oid = repo_idx
-        .write_tree()
-        .unwrap_or_else(|e| panic!("Error writing {} {} {}: {}", i.name, i.version, i.url, e));
+    let oid = repo_idx.write_tree().unwrap_or_else(|e| {
+        panic!(
+            "Error writing {} {}/{} {} {}: {}",
+            job_info, job_info.chunk, i.index, i.version, i.url, e
+        )
+    });
 
     let tree = repo.find_tree(oid).unwrap();
 
@@ -86,12 +88,15 @@ pub fn commit(
         Some("HEAD"),
         &signature,
         &signature,
-        format!("{} {} ({})", i.name, i.version, filename).as_str(),
+        format!("{} {} ({})", job_info.name, i.version, filename).as_str(),
         &tree,
         &parent,
     )
     .unwrap();
-    warn!("[{}] Committed {} entries", i.name, total);
+    warn!(
+        "[{} {}/{}] Committed {} entries",
+        job_info, job_info.chunk, i.index, total
+    );
 
     total_bytes
 }
@@ -100,4 +105,83 @@ pub struct TextFile {
     pub path: Vec<u8>,
     pub oid: Oid,
     pub size: usize,
+}
+
+const IGNORED_SUFFIXES: &[&str] = &[
+    // Skip METADATA files. These can contain gigantic readme files which can bloat the repo?
+    ".dist-info/METADATA",
+    // Same for license files
+    ".dist-info/LICENSE",
+    ".dist-info/RECORD",
+    ".dist-info/TOP_LEVEL",
+    ".dist-info/DESCRIPTION.rst",
+];
+
+pub fn run<'a>(
+    client: &mut Client,
+    info: &'a JobInfo,
+    item: PackageInfo,
+    repo_odb: &Odb,
+) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Vec<TextFile>)>> {
+    warn!("[{} {}/{}] Starting", info, info.total, item.index);
+    let package_filename = item.package_filename();
+
+    let package_extension = package_filename.rsplit('.').next().unwrap();
+    // The package filename contains the package name and the version. We don't need this in the output, so just ignore it.
+    // The format is `{name}-{version}-{rest}`, so we strip out `rest`
+    let reduced_package_filename =
+        &package_filename[(info.name.len() + 1 + item.version.len() + 1)..];
+
+    // .tar.gz files unwrap all contents to paths like `Django-1.10rc1/...`. This isn't great,
+    // so we detect this and strip the prefix.
+    let tar_gz_first_segment = format!("{}-{}/", info.name, item.version);
+
+    let download_response = client.get(item.url.clone()).send()?;
+    let mut archive = match PackageArchive::new(package_extension, download_response) {
+        None => {
+            return Ok(None);
+        }
+        Some(v) => v,
+    };
+
+    let mut has_any_text_files = false;
+
+    let mut entries = Vec::with_capacity(1024);
+    warn!("[{} {}/{}] Begin iterating", info, info.total, item.index);
+
+    for (file_name, content) in archive.all_items().flatten() {
+        if let FileContent::Text(content) = content {
+            if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
+                || file_name.contains("/.git/")
+                || file_name.ends_with("/.git")
+            {
+                continue;
+            }
+            let file_name = if file_name.starts_with(&tar_gz_first_segment) {
+                &file_name[tar_gz_first_segment.len()..]
+            } else {
+                &*file_name
+            };
+            let path = format!(
+                "code/{}/{}/{}/{file_name}",
+                info.name, item.version, reduced_package_filename
+            )
+            .replace("/./", "/")
+            .replace("/../", "/");
+
+            let oid = repo_odb.write(ObjectType::Blob, &content).unwrap();
+            entries.push(TextFile {
+                path: path.into_bytes(),
+                oid,
+                size: content.len(),
+            });
+            has_any_text_files = true;
+        }
+    }
+
+    if !has_any_text_files {
+        return Ok(None);
+    }
+
+    Ok(Some((&info, item, entries)))
 }

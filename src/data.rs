@@ -1,4 +1,3 @@
-use crate::JsonInput;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use jwalk::{rayon, WalkDir};
@@ -7,13 +6,13 @@ use rand::thread_rng;
 use rayon::prelude::*;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 struct Info {
-    name: String,
     version: String,
 }
 
@@ -29,7 +28,13 @@ struct PackageVersion {
     urls: Vec<Url>,
 }
 
-pub fn extract_urls(dir: PathBuf, output_dir: PathBuf, limit: Option<usize>, find: Option<String>) {
+pub fn extract_urls(
+    dir: PathBuf,
+    output_dir: PathBuf,
+    limit: Option<usize>,
+    find: Option<String>,
+    split: usize,
+) {
     let find = find.map(|v| {
         v.split(' ')
             .filter(|v| !v.is_empty())
@@ -68,36 +73,91 @@ pub fn extract_urls(dir: PathBuf, output_dir: PathBuf, limit: Option<usize>, fin
         let reader = BufReader::new(File::open(entry.path()).unwrap());
         let version: HashMap<String, PackageVersion> = serde_json::from_reader(reader).unwrap();
 
-        let sorted_to_download = version
+        let entry_path = entry.path();
+        let package_name = entry_path.file_stem().unwrap().to_str().unwrap();
+
+        let packages_to_download: Vec<_> = version
             .into_iter()
             .flat_map(|(_, v)| {
                 v.urls.into_iter().map(move |v2| {
-                    (
-                        v.info.name.clone(),
-                        v.info.version.clone(),
-                        v2.url,
-                        v2.upload_time_iso_8601,
-                    )
+                    PackageInfo {
+                        // name: v.info.name.clone(),
+                        version: v.info.version.clone(),
+                        url: v2.url.parse().unwrap(),
+                        uploaded_on: v2.upload_time_iso_8601,
+                        index: 0,
+                    }
                 })
             })
-            .sorted_by_key(|v| v.1.clone());
-        let packages_to_download: Vec<_> = sorted_to_download
+            .sorted_by_key(|v| v.version.clone())
+            .chunks(split)
             .into_iter()
-            .map(|(name, version, url, dt)| JsonInput {
-                name,
-                version,
-                url: url.parse().unwrap(),
-                uploaded_on: dt,
+            .enumerate()
+            .map(|(idx, chunks)| {
+                (
+                    idx,
+                    chunks
+                        .into_iter()
+                        .enumerate()
+                        .map(|(idx, mut p)| {
+                            p.index = idx;
+                            p
+                        })
+                        .collect::<Vec<_>>(),
+                )
             })
             .collect();
 
         if packages_to_download.is_empty() {
             return;
         }
+        for (chunk, packages) in packages_to_download {
+            let output_file_name = format!("{}_{}.json", package_name, chunk);
+            let output = DownloadJob {
+                info: JobInfo {
+                    name: package_name.to_string(),
+                    total: packages.len(),
+                    chunk,
+                },
+                packages,
+            };
 
-        let output_file = File::create(output_dir.join(entry.file_name)).unwrap();
-        let writer = BufWriter::new(output_file);
-
-        serde_json::to_writer(writer, &packages_to_download).unwrap();
+            let output_file = File::create(output_dir.join(output_file_name)).unwrap();
+            let writer = BufWriter::new(output_file);
+            serde_json::to_writer(writer, &output).unwrap();
+        }
     });
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
+pub struct DownloadJob {
+    pub info: JobInfo,
+    pub packages: Vec<PackageInfo>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
+pub struct JobInfo {
+    pub name: String,
+    pub chunk: usize,
+    pub total: usize,
+}
+
+impl Display for JobInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.name, self.chunk)
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
+pub struct PackageInfo {
+    pub version: String,
+    pub url: url::Url,
+    pub uploaded_on: DateTime<Utc>,
+    pub index: usize,
+}
+
+impl PackageInfo {
+    pub fn package_filename(&self) -> &str {
+        self.url.path_segments().unwrap().last().unwrap()
+    }
 }
