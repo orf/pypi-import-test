@@ -2,7 +2,7 @@ mod archive;
 mod data;
 mod writer;
 
-use crate::archive::{FileContent, PackageArchive};
+
 use crossbeam::thread;
 use std::fs;
 use std::fs::File;
@@ -11,7 +11,7 @@ use std::io::{BufReader, Write};
 use anyhow::Context;
 use clap::Parser;
 use git2::{
-    Buf, ObjectType, Odb, RebaseOperationType, RebaseOptions, Repository, RepositoryInitOptions,
+    Buf, RebaseOperationType, RebaseOptions, Repository, RepositoryInitOptions,
     Signature, Time,
 };
 use rayon::prelude::*;

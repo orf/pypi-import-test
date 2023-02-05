@@ -1,5 +1,5 @@
 use crate::data::{JobInfo, PackageInfo};
-use crossbeam::channel::Receiver;
+
 use git2::{Buf, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Oid, Repository, Signature, Time};
 use log::{info, warn};
 
@@ -183,5 +183,5 @@ pub fn run<'a>(
         return Ok(None);
     }
 
-    Ok(Some((&info, item, entries)))
+    Ok(Some((info, item, entries)))
 }

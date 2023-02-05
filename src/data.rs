@@ -112,7 +112,7 @@ pub fn extract_urls(
             return;
         }
         for (chunk, packages) in packages_to_download {
-            let output_file_name = format!("{}_{}.json", package_name, chunk);
+            let output_file_name = format!("{package_name}_{chunk}.json");
             let output = DownloadJob {
                 info: JobInfo {
                     name: package_name.to_string(),
