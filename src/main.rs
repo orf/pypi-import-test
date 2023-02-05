@@ -11,8 +11,8 @@ use std::io::{BufReader, Write};
 use anyhow::Context;
 use clap::Parser;
 use git2::{
-    Buf, ObjectType, Odb, RebaseOperationType, RebaseOptions, Repository, RepositoryInitOptions,
-    Signature, Time,
+    Buf, IndexEntry, IndexTime, ObjectType, Odb, RebaseOperationType, RebaseOptions, Repository,
+    RepositoryInitOptions, Signature, Time,
 };
 use rayon::prelude::*;
 
@@ -258,9 +258,10 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
     thread::scope(|s| {
         s.spawn(|_| {
             let sender = sender;
-            items.into_par_iter().enumerate().for_each_init(
-                Client::new,
-                |client, (idx, item)| {
+            items
+                .into_par_iter()
+                .enumerate()
+                .for_each_init(Client::new, |client, (idx, item)| {
                     let error_ctx = format!(
                         "Name: {}, version: {}, url: {}",
                         item.name, item.version, item.url
@@ -271,8 +272,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
                             // Ignore errors sending
                         }
                     }
-                },
-            );
+                });
         });
 
         consume_queue(&repo, &odb, mempack_backend, recv)
@@ -304,6 +304,7 @@ fn run(
     let new_repo = Repository::from_odb(Odb::new().unwrap()).unwrap();
     let odb = new_repo.odb().unwrap();
     odb.add_new_mempack_backend(3).unwrap();
+    let mut new_repo_idx = new_repo.index().unwrap();
 
     let mut pack = new_repo.packbuilder().unwrap();
     pack.set_threads(1);
@@ -329,35 +330,50 @@ fn run(
     let mut has_any_text_files = false;
 
     let mut entries = Vec::with_capacity(1024);
-
+    let index_time = IndexTime::new(item.uploaded_on.timestamp() as i32, 0);
     warn!("[{}/{}] Begin iterating", item.name, idx);
 
     for (file_name, content) in archive.all_items().flatten() {
-        if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
-            || file_name.contains("/.git/")
-            || file_name.ends_with("/.git")
-        {
-            continue;
-        }
-        let file_name = if file_name.starts_with(&tar_gz_first_segment) {
-            &file_name[tar_gz_first_segment.len()..]
-        } else {
-            &*file_name
-        };
-        let path = format!(
-            "code/{}/{}/{}/{file_name}",
-            item.name, item.version, reduced_package_filename
-        )
-        .replace("/./", "/")
-        .replace("/../", "/");
         if let FileContent::Text(content) = content {
+            if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
+                || file_name.contains("/.git/")
+                || file_name.ends_with("/.git")
+            {
+                continue;
+            }
+            let file_name = if file_name.starts_with(&tar_gz_first_segment) {
+                &file_name[tar_gz_first_segment.len()..]
+            } else {
+                &*file_name
+            };
+            let path = format!(
+                "code/{}/{}/{}/{file_name}",
+                item.name, item.version, reduced_package_filename
+            )
+            .replace("/./", "/")
+            .replace("/../", "/");
+
             let oid = odb.write(ObjectType::Blob, &content).unwrap();
+            let entry = IndexEntry {
+                ctime: index_time,
+                mtime: index_time,
+                dev: 0,
+                ino: 0,
+                mode: 0o100644,
+                uid: 0,
+                gid: 0,
+                file_size: content.len() as u32,
+                id: oid,
+                flags: 0,
+                flags_extended: 0,
+                path: path.as_bytes().to_vec(),
+            };
+            new_repo_idx.add(&entry).unwrap();
             entries.push(TextFile {
                 path: path.into_bytes(),
                 oid,
                 size: content.len(),
             });
-            pack.insert_object(oid, None).unwrap();
             has_any_text_files = true;
         }
     }
@@ -365,6 +381,10 @@ fn run(
     if !has_any_text_files {
         return Ok(None);
     }
+
+    warn!("[{}/{}] inserting tree recursive", item.name, idx);
+    let tree_oid = new_repo_idx.write_tree().unwrap();
+    pack.insert_recursive(tree_oid, None).unwrap();
 
     warn!("[{}/{}] writing buf", item.name, idx);
     let mut buf = Buf::new();
