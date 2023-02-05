@@ -28,26 +28,15 @@ mkdir -p "$PARTITIONS_DIR"
 mkdir -p "$TEMP_DIR"
 
 echo "creating URLs"
-./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
+#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"
-#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --find="$(cat tests/debug.txt)"
+./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=500 --find="$(cat tests/debug.txt)"
 
 echo "creating index file"
 fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 
-#echo "splitting files into partitions"
-#split -d -l "$PACKAGES_PER_PARTITION" "$INDEX_FILE" "$SPLITS_DIR"
-
-#echo "indexing splits"
-#fd --base-directory="$SPLITS_DIR" . > "$SPLITS_INDEX_FILE"
-
-#echo "creating partitions directory"
-#parallel -a "$SPLITS_INDEX_FILE" -I@ 'mkdir -p $PARTITIONS_DIR/@'
-
 echo "running partitions"
-#parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
 export RUST_LOG=warn
-export RAYON_NUM_THREADS=3
 parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
