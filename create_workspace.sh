@@ -50,4 +50,4 @@ echo "running partitions"
 #parallel --progress --eta -P1 -a "$SPLITS_INDEX_FILE" -I@ './run_partition.sh $SPLITS_DIR/@ $PARTITIONS_DIR/@ && echo DONE @'
 export RUST_LOG=warn
 export RAYON_NUM_THREADS=3
-parallel --progress --joblog=job.log --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
+parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
