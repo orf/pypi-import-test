@@ -57,6 +57,8 @@ enum RunType {
     },
     Combine {
         #[arg()]
+        job_idx: usize,
+        #[arg()]
         base_repo: PathBuf,
         #[arg()]
         target_repos: Vec<PathBuf>,
@@ -125,10 +127,11 @@ fn main() -> anyhow::Result<()> {
             split,
         } => data::extract_urls(data, output_dir, limit, find, split),
         RunType::Combine {
+            job_idx,
             base_repo,
             target_repos,
         } => {
-            combine::combine(base_repo, target_repos);
+            combine::combine(job_idx, base_repo, target_repos);
         }
     }
     Ok(())

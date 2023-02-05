@@ -7,8 +7,7 @@ export WORKSPACE="$1"
 export REPOS_DIRECTORY="$2"
 export CONCURRENCY="$3"
 
-export PACKAGES_PER_PARTITION="1000"
-export LIMIT="100"
+export LIMIT="2500"
 
 export SPLITS_DIR="$WORKSPACE"/splits/
 export URLS_DIR="$WORKSPACE"/urls/
@@ -28,11 +27,11 @@ mkdir -p "$PARTITIONS_DIR"
 mkdir -p "$TEMP_DIR"
 
 echo "creating URLs"
-#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
+./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"
-./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=500 --find="$(cat tests/debug.txt)"
+#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=500 --find="$(cat tests/debug.txt)"
 
 echo "creating index file"
 fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"

@@ -5,10 +5,9 @@ use git2::{
 };
 use log::warn;
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 
-pub fn combine(base_repo: PathBuf, target_repos: Vec<PathBuf>) {
+pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
     let opts = RepositoryInitOptions::new();
     let repo = Repository::init_opts(base_repo, &opts).unwrap();
     let mut repo_idx = repo.index().unwrap();
@@ -22,7 +21,7 @@ pub fn combine(base_repo: PathBuf, target_repos: Vec<PathBuf>) {
     )
     .unwrap();
 
-    warn!("Fetching...");
+    warn!("[{}] Fetching...", job_idx);
     let references_to_merge: Vec<_> = target_repos
         .into_iter()
         .enumerate()
@@ -36,7 +35,7 @@ pub fn combine(base_repo: PathBuf, target_repos: Vec<PathBuf>) {
                     format!("file://{}", target.to_str().unwrap()).as_str(),
                 )
                 .unwrap();
-            warn!("Fetching remote {}", remote.url().unwrap());
+            warn!("[{}] Fetching remote {}", job_idx, remote.url().unwrap());
             if let Err(e) = remote.fetch(
                 &[format!(
                     "refs/heads/master:refs/remotes/{remote_name}/master"
@@ -44,7 +43,7 @@ pub fn combine(base_repo: PathBuf, target_repos: Vec<PathBuf>) {
                 None,
                 None,
             ) {
-                warn!("Error fetching remote: {}", e);
+                warn!("[{}] Error fetching remote: {}", job_idx, e);
                 return None;
             }
             let reference = repo
@@ -55,14 +54,15 @@ pub fn combine(base_repo: PathBuf, target_repos: Vec<PathBuf>) {
         .collect();
 
     let total = references_to_merge.len();
-    warn!("Merging {} references", total);
+    warn!("[{}] Merging {} references", job_idx, total);
 
     let builder = repo.treebuilder(None).unwrap();
     let base_tree = repo.find_tree(builder.write().unwrap()).unwrap();
     let mut update = TreeUpdateBuilder::new();
 
     for (idx, item) in references_to_merge.iter().enumerate() {
-        warn!("Merging tree {}/{}", idx, total);
+        // Combine all trees into a single treebuilder.
+        warn!("[{}] Merging tree {}/{}", job_idx, idx, total);
         item.tree()
             .unwrap()
             .walk(TreeWalkMode::PreOrder, |x, y| {
@@ -78,23 +78,24 @@ pub fn combine(base_repo: PathBuf, target_repos: Vec<PathBuf>) {
             .unwrap();
     }
 
-    warn!("Creating tree");
+    warn!("[{}] Creating tree", job_idx);
     let base_tree = update.create_updated(&repo, &base_tree).unwrap();
     let base_tree = repo.find_tree(base_tree).unwrap();
 
-    warn!("Finished merging trees, committing");
+    warn!("[{}] Finished merging trees, committing", job_idx);
     let parent_commits: Vec<_> = references_to_merge.iter().collect();
 
     repo.commit(
         Some("HEAD"),
         &signature,
         &signature,
-        "test",
+        "Merging partitions",
         &base_tree,
         &parent_commits,
     )
     .unwrap();
 
-    warn!("Writing index");
+    warn!("[{}] Writing index", job_idx);
     repo_idx.write().unwrap();
+    warn!("[{}] Finished", job_idx);
 }

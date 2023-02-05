@@ -8,6 +8,8 @@ use reqwest::blocking::Response;
 use tar::{Archive, Entries};
 use zip::read::read_zipfile_from_stream;
 
+const MAX_FILE_SIZE: u64 = 1024 * 1024 * 50;
+
 pub enum PackageArchive {
     Zip(BufReader<Response>),
     TarGz(Archive<GzDecoder<Response>>),
@@ -64,6 +66,9 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
                             if !z.is_file() {
                                 continue;
                             }
+                            if z.size() > MAX_FILE_SIZE {
+                                continue;
+                            }
                             let name = z.name().to_string();
                             let content = inspect_content(z);
                             Some(Ok((name, content)))
@@ -75,6 +80,9 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
             PackageEnumIterator::TarGz(t) => match t.flatten().find(|v| v.size() != 0) {
                 None => None,
                 Some(v) => {
+                    if v.size() > MAX_FILE_SIZE {
+                        return None;
+                    }
                     let name = v.path().unwrap().to_str().unwrap().to_string();
                     let content = inspect_content(v);
                     Some(Ok((name, content)))
@@ -83,6 +91,9 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
             PackageEnumIterator::TarBz(t) => match t.flatten().find(|v| v.size() != 0) {
                 None => None,
                 Some(v) => {
+                    if v.size() > MAX_FILE_SIZE {
+                        return None;
+                    }
                     let name = v.path().unwrap().to_str().unwrap().to_string();
                     let content = inspect_content(v);
                     Some(Ok((name, content)))
