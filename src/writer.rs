@@ -1,11 +1,13 @@
 use crate::data::{JobInfo, PackageInfo};
 
-use git2::{Buf, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Oid, Repository, Signature, Time};
+use git2::{
+    Buf, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Oid, Repository, Signature, Time,
+};
 use log::{info, warn};
 
-use std::io::Write;
-use reqwest::blocking::Client;
 use crate::archive::{FileContent, PackageArchive};
+use reqwest::blocking::Client;
+use std::io::Write;
 
 pub fn flush_repo(
     repo: &Repository,
@@ -43,8 +45,8 @@ pub fn commit(
     warn!(
         "[{} {}/{}] Starting adding {} entries ({} mb)",
         job_info,
-        job_info.total,
         i.index,
+        job_info.total,
         index.len(),
         total_bytes / 1024 / 1024
     );
@@ -70,7 +72,7 @@ pub fn commit(
     let oid = repo_idx.write_tree().unwrap_or_else(|e| {
         panic!(
             "Error writing {} {}/{} {} {}: {}",
-            job_info, job_info.chunk, i.index, i.version, i.url, e
+            job_info, i.index, job_info.total, i.version, i.url, e
         )
     });
 
@@ -95,7 +97,7 @@ pub fn commit(
     .unwrap();
     warn!(
         "[{} {}/{}] Committed {} entries",
-        job_info, job_info.total, i.index, total
+        job_info, i.index, job_info.total, total
     );
 
     total_bytes
@@ -123,7 +125,7 @@ pub fn run<'a>(
     item: PackageInfo,
     repo_odb: &Odb,
 ) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Vec<TextFile>)>> {
-    warn!("[{} {}/{}] Starting", info, info.total, item.index);
+    warn!("[{} {}/{}] Starting", info, item.index, info.total);
     let package_filename = item.package_filename();
 
     let package_extension = package_filename.rsplit('.').next().unwrap();
@@ -147,7 +149,7 @@ pub fn run<'a>(
     let mut has_any_text_files = false;
 
     let mut entries = Vec::with_capacity(1024);
-    warn!("[{} {}/{}] Begin iterating", info, info.total, item.index);
+    warn!("[{} {}/{}] Begin iterating", info, item.index, info.total);
 
     for (file_name, content) in archive.all_items().flatten() {
         if let FileContent::Text(content) = content {
@@ -183,7 +185,10 @@ pub fn run<'a>(
         return Ok(None);
     }
 
-    warn!("[{} {}/{}] Finished iterating", info, info.total, item.index);
+    warn!(
+        "[{} {}/{}] Finished iterating",
+        info, item.index, info.total
+    );
 
     Ok(Some((info, item, entries)))
 }

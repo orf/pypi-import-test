@@ -2,7 +2,6 @@ mod archive;
 mod data;
 mod writer;
 
-
 use crossbeam::thread;
 use std::fs;
 use std::fs::File;
@@ -11,8 +10,7 @@ use std::io::{BufReader, Write};
 use anyhow::Context;
 use clap::Parser;
 use git2::{
-    Buf, RebaseOperationType, RebaseOptions, Repository, RepositoryInitOptions,
-    Signature, Time,
+    Buf, RebaseOperationType, RebaseOptions, Repository, RepositoryInitOptions, Signature, Time,
 };
 use rayon::prelude::*;
 
@@ -277,10 +275,10 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<()> {
         for (job_info, package_info, index) in recv {
             commit(&repo, &mut repo_idx, job_info, package_info, index);
         }
-        flush_repo(&repo,  repo_idx, &odb, mempack_backend);
+        flush_repo(&repo, repo_idx, &odb, mempack_backend);
         // consume_queue(&repo, &odb, mempack_backend, recv)
     })
-        .unwrap();
+    .unwrap();
 
     Ok(())
 }
