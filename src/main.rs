@@ -235,6 +235,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()> {
+    git2::opts::strict_object_creation(false);
+    git2::opts::strict_hash_verification(false);
+
     let repo = match Repository::open(repo_path) {
         Ok(v) => v,
         Err(_) => {
@@ -271,7 +274,7 @@ fn run_multiple(repo_path: &PathBuf, items: Vec<JsonInput>) -> anyhow::Result<()
 
         consume_queue(&repo, &odb, mempack_backend, recv)
     })
-    .unwrap();
+        .unwrap();
 
     Ok(())
 }
@@ -335,8 +338,8 @@ fn run(item: JsonInput, repo_odb: &Odb) -> anyhow::Result<Option<(JsonInput, Vec
             "code/{}/{}/{}/{file_name}",
             item.name, item.version, reduced_package_filename
         )
-        .replace("/./", "/")
-        .replace("/../", "/");
+            .replace("/./", "/")
+            .replace("/../", "/");
         if let FileContent::Text(content) = content {
             let oid = odb.write(ObjectType::Blob, &content).unwrap();
             entries.push(TextFile {
