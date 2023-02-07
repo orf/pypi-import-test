@@ -2,6 +2,7 @@ mod archive;
 mod combine;
 mod data;
 mod writer;
+mod inspect;
 
 use crossbeam::thread;
 use std::fs;
@@ -75,6 +76,10 @@ enum RunType {
         #[arg(long, short, default_value = "500")]
         split: usize,
     },
+    ReadIndex {
+        #[arg()]
+        repo: PathBuf,
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -132,6 +137,10 @@ fn main() -> anyhow::Result<()> {
             target_repos,
         } => {
             combine::combine(job_idx, base_repo, target_repos);
+        }
+        RunType::ReadIndex { repo } => {
+            let x = inspect::parse_index(repo);
+            println!("Total: {}", x);
         }
     }
     Ok(())

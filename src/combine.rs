@@ -1,11 +1,10 @@
 use chrono::Utc;
 use git2::build::TreeUpdateBuilder;
-use git2::{
-    FileMode, ObjectType, Repository, RepositoryInitOptions, Signature, Time, TreeWalkMode,
-};
-use log::warn;
+use git2::{Error, FileMode, ObjectType, Reference, Repository, RepositoryInitOptions, Signature, Time, TreeWalkMode};
+use log::{error, warn};
 use std::fs;
 use std::path::PathBuf;
+use rayon::prelude::*;
 
 pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
     let opts = RepositoryInitOptions::new();
@@ -19,59 +18,62 @@ pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
         "tom@tomforb.es",
         &Time::new(time_now.timestamp(), 0),
     )
-    .unwrap();
+        .unwrap();
 
-    warn!("[{}] Fetching...", job_idx);
-    let references_to_merge: Vec<_> = target_repos
-        .into_iter()
-        .enumerate()
-        .filter_map(|(idx, target)| {
-            let target = fs::canonicalize(target).unwrap();
-            let remote_name = format!("import_{idx}");
-            let _ = repo.remote_delete(&remote_name);
-            let mut remote = repo
-                .remote(
-                    &remote_name,
-                    format!("file://{}", target.to_str().unwrap()).as_str(),
-                )
-                .unwrap();
-            warn!("[{}] Fetching remote {}", job_idx, remote.url().unwrap());
-            if let Err(e) = remote.fetch(
-                &[format!(
-                    "refs/heads/master:refs/remotes/{remote_name}/master"
-                )],
-                None,
-                None,
-            ) {
-                warn!("[{}] Error fetching remote: {}", job_idx, e);
-                return None;
-            }
-            let reference = repo
-                .find_reference(format!("refs/remotes/{remote_name}/master").as_str())
-                .unwrap();
-            Some(reference.peel_to_commit().unwrap())
-        })
-        .collect();
+    warn!("[{}] Adding remotes...", job_idx);
+    let mut remotes: Vec<_> = target_repos.iter().enumerate().map(|(idx, target)| {
+        let target = fs::canonicalize(target).unwrap();
+        let remote_name = format!("import_{idx}");
+        let _ = repo.remote_delete(&remote_name);
+        let remote = repo
+            .remote(
+                &remote_name,
+                format!("file://{}", target.to_str().unwrap()).as_str(),
+            )
+            .unwrap();
+        (remote_name, remote)
+    }).collect();
 
-    let total = references_to_merge.len();
-    warn!("[{}] Merging {} references", job_idx, total);
+    warn!("[{}] Fetching remotes...", job_idx);
+    let remotes: Vec<_> = remotes.par_iter_mut().map(|(remote_name, remote)| {
+        remote.fetch(
+            &[format!(
+                "refs/heads/master:refs/remotes/{remote_name}/master"
+            )],
+            None,
+            None,
+        ).unwrap(); // To-do: handle errors
+        remote_name
+    }).collect();
+
+    let commits: Vec<_> = remotes.into_iter().flat_map(|name| {
+        match repo
+            .find_reference(format!("refs/remotes/{name}/master").as_str()) {
+            Ok(r) => Some(r.peel_to_commit().unwrap()),
+            Err(_) => None
+        }
+    }).collect();
+
+    let total = commits.len();
+    warn!("[{}] Merging {} remotes", job_idx, total);
 
     let builder = repo.treebuilder(None).unwrap();
     let base_tree = repo.find_tree(builder.write().unwrap()).unwrap();
     let mut update = TreeUpdateBuilder::new();
 
-    for (idx, item) in references_to_merge.iter().enumerate() {
+    for commit in &commits {
         // Combine all trees into a single treebuilder.
-        warn!("[{}] Merging tree {}/{}", job_idx, idx, total);
-        item.tree()
+        commit.tree()
             .unwrap()
             .walk(TreeWalkMode::PreOrder, |x, y| {
-                if let Some(ObjectType::Blob) = y.kind() {
+                // code/adb3/1.1.0/tar.gz/ -> 4 splits.
+                if let (4, Some(ObjectType::Tree)) = (x.split('/').count(), y.kind()) {
                     update.upsert(
                         format!("{}{}", x, y.name().unwrap()),
                         y.id(),
-                        FileMode::Blob,
+                        FileMode::Tree,
                     );
+                    return 1;
                 }
                 0
             })
@@ -83,7 +85,7 @@ pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
     let base_tree = repo.find_tree(base_tree).unwrap();
 
     warn!("[{}] Finished merging trees, committing", job_idx);
-    let parent_commits: Vec<_> = references_to_merge.iter().collect();
+    let parent_commits: Vec<_> = commits.iter().collect();
 
     repo.commit(
         Some("HEAD"),
@@ -93,7 +95,7 @@ pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
         &base_tree,
         &parent_commits,
     )
-    .unwrap();
+        .unwrap();
 
     warn!("[{}] Writing index", job_idx);
     repo_idx.write().unwrap();
