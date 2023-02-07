@@ -29,8 +29,8 @@ log = { version = "0.4.17", features=["release_max_level_info"]}
 env_logger = "0.10.0"
 indicatif = "0.17.3"
 # This commit is the only one that works?
-libcst = { git = "https://github.com/Instagram/LibCST", rev = "f2f0b7a487a8725d161fe8b3ed73a6758b21e177" }
-rustpython-parser = { features = ["lalrpop"], git = "https://github.com/RustPython/RustPython.git", rev = "adc23253e4b58980b407ba2760dbe61681d752fc" }
+#libcst = { git = "https://github.com/Instagram/LibCST", rev = "f2f0b7a487a8725d161fe8b3ed73a6758b21e177" }
+#rustpython-parser = { features = ["lalrpop"], git = "https://github.com/RustPython/RustPython.git", rev = "adc23253e4b58980b407ba2760dbe61681d752fc" }
 
 [profile.release]
 codegen-units = 1

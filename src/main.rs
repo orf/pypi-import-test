@@ -139,8 +139,8 @@ fn main() -> anyhow::Result<()> {
             combine::combine(job_idx, base_repo, target_repos);
         }
         RunType::ReadIndex { repo } => {
-            let x = inspect::parse_index(repo);
-            println!("Total: {}", x);
+            // let x = inspect::parse_index(repo);
+            // println!("Total: {}", x);
         }
     }
     Ok(())

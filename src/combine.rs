@@ -43,6 +43,7 @@ pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
             None,
             None,
         ).unwrap(); // To-do: handle errors
+        // warn!("[{}] Fetched remote", job_idx);
         remote_name
     }).collect();
 
