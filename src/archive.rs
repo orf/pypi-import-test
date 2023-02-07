@@ -8,7 +8,7 @@ use reqwest::blocking::Response;
 use tar::{Archive, Entries};
 use zip::read::read_zipfile_from_stream;
 
-const MAX_FILE_SIZE: u64 = 1024 * 1024 * 50;
+const MAX_FILE_SIZE: u64 = 1024 * 1024 * 15;
 
 pub enum PackageArchive {
     Zip(BufReader<Response>),
