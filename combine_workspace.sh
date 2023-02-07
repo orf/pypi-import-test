@@ -6,7 +6,7 @@ cargo build --release
 export WORKSPACE="$1"
 export INPUT_GIT_DIR="$2"
 export CONCURRENCY="$3"
-export PACKAGES_PER_PARTITION="20"
+export PACKAGES_PER_PARTITION="10"
 
 export COMBINED_DIR="$WORKSPACE"/combined
 export INDEX_FILE="$WORKSPACE"/index
