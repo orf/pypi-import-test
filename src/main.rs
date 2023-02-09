@@ -176,7 +176,7 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
             let sender = sender;
             job.packages
                 .into_par_iter()
-                .for_each_init(Client::new, |client, item| {
+                .for_each_init(|| Client::builder().http2_prior_knowledge().build().unwrap(), |client, item| {
                     let error_ctx = format!(
                         "Name: {}, version: {}, url: {}",
                         job.info.name, item.version, item.url
