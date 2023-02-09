@@ -148,6 +148,8 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
+
 fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
     git2::opts::strict_object_creation(false);
     git2::opts::strict_hash_verification(false);
@@ -174,9 +176,15 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
     thread::scope(|s| {
         s.spawn(|_| {
             let sender = sender;
-            job.packages
-                .into_par_iter()
-                .for_each_init(|| Client::builder().http2_prior_knowledge().build().unwrap(), |client, item| {
+            job.packages.into_par_iter().for_each_init(
+                || {
+                    Client::builder()
+                        .http2_prior_knowledge()
+                        .user_agent(APP_USER_AGENT)
+                        .build()
+                        .unwrap()
+                },
+                |client, item| {
                     let error_ctx = format!(
                         "Name: {}, version: {}, url: {}",
                         job.info.name, item.version, item.url
@@ -189,7 +197,8 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
                             // Ignore errors sending
                         }
                     }
-                });
+                },
+            );
         });
 
         for (job_info, package_info, index) in recv {

@@ -21,12 +21,10 @@ const EXCLUDE_SUFFIXES: &[&str] = &[
     ".js",
     ".map",
     ".po",
-
     // CSS and HTTP stuff
     ".css",
     ".scss",
     ".less",
-
     // Model files (icub_models)
     ".stl",
     ".dae",
