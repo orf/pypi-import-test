@@ -1,8 +1,9 @@
 mod archive;
 mod combine;
 mod data;
-mod writer;
+mod file_inspection;
 mod inspect;
+mod writer;
 
 use crossbeam::thread;
 use std::fs;
@@ -11,13 +12,13 @@ use std::io::BufReader;
 
 use anyhow::Context;
 use clap::Parser;
-use git2::Repository;
+use git2::{Index, Repository};
 use rayon::prelude::*;
 
 use std::path::PathBuf;
 
 use crate::data::{DownloadJob, JobInfo};
-use crate::writer::{commit, flush_repo, TextFile};
+use crate::writer::{commit, flush_repo};
 use crossbeam::channel::bounded;
 use data::PackageInfo;
 
@@ -79,7 +80,7 @@ enum RunType {
     ReadIndex {
         #[arg()]
         repo: PathBuf,
-    }
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -120,9 +121,10 @@ fn main() -> anyhow::Result<()> {
 
             let reader = BufReader::new(File::open(input_file).unwrap());
             let input: DownloadJob = serde_json::from_reader(reader).unwrap();
-            run_multiple(&work_path, input)?;
-            fs::create_dir(&finished_path).unwrap();
-            fs::rename(&work_path, &finished_path).unwrap();
+            if run_multiple(&work_path, input)? {
+                fs::create_dir(&finished_path).unwrap();
+                fs::rename(&work_path, &finished_path).unwrap();
+            }
         }
         RunType::CreateUrls {
             data,
@@ -138,7 +140,7 @@ fn main() -> anyhow::Result<()> {
         } => {
             combine::combine(job_idx, base_repo, target_repos);
         }
-        RunType::ReadIndex { repo } => {
+        RunType::ReadIndex { repo: _ } => {
             // let x = inspect::parse_index(repo);
             // println!("Total: {}", x);
         }
@@ -146,7 +148,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<()> {
+fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
     git2::opts::strict_object_creation(false);
     git2::opts::strict_hash_verification(false);
 
@@ -161,18 +163,22 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<()> {
         }
     };
 
-    let (sender, recv) = bounded::<(&JobInfo, PackageInfo, Vec<TextFile>)>(20);
+    let (sender, recv) = bounded::<(&JobInfo, PackageInfo, Index)>(20);
 
     let odb = repo.odb().unwrap();
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
-    let mut repo_idx = repo.index().unwrap();
+    let repo_idx = repo.index().unwrap();
+
+    let mut should_copy_repo = false;
 
     thread::scope(|s| {
         s.spawn(|_| {
             let sender = sender;
             job.packages
                 .into_par_iter()
+                .filter(|v| v.version == "0.7.2rc36" && v.url.to_string().contains(".tar.gz"))
                 .for_each_init(Client::new, |client, item| {
+                    println!("URL: {}", item.url);
                     let error_ctx = format!(
                         "Name: {}, version: {}, url: {}",
                         job.info.name, item.version, item.url
@@ -189,12 +195,14 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<()> {
         });
 
         for (job_info, package_info, index) in recv {
-            commit(&repo, &mut repo_idx, job_info, package_info, index);
+            commit(&repo, job_info, package_info, index);
+            should_copy_repo = true;
         }
-        flush_repo(&repo, repo_idx, &odb, mempack_backend);
-        // consume_queue(&repo, &odb, mempack_backend, recv)
+        if should_copy_repo {
+            flush_repo(&repo, repo_idx, &odb, mempack_backend);
+        }
     })
     .unwrap();
 
-    Ok(())
+    Ok(should_copy_repo)
 }

@@ -1,10 +1,12 @@
 use chrono::Utc;
 use git2::build::TreeUpdateBuilder;
-use git2::{Error, FileMode, ObjectType, Reference, Repository, RepositoryInitOptions, Signature, Time, TreeWalkMode};
-use log::{error, warn};
+use git2::{
+    FileMode, ObjectType, Repository, RepositoryInitOptions, Signature, Time, TreeWalkMode,
+};
+use log::warn;
+use rayon::prelude::*;
 use std::fs;
 use std::path::PathBuf;
-use rayon::prelude::*;
 
 pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
     let opts = RepositoryInitOptions::new();
@@ -18,42 +20,53 @@ pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
         "tom@tomforb.es",
         &Time::new(time_now.timestamp(), 0),
     )
-        .unwrap();
+    .unwrap();
 
     warn!("[{}] Adding remotes...", job_idx);
-    let mut remotes: Vec<_> = target_repos.iter().enumerate().map(|(idx, target)| {
-        let target = fs::canonicalize(target).unwrap();
-        let remote_name = format!("import_{idx}");
-        let _ = repo.remote_delete(&remote_name);
-        let remote = repo
-            .remote(
-                &remote_name,
-                format!("file://{}", target.to_str().unwrap()).as_str(),
-            )
-            .unwrap();
-        (remote_name, remote)
-    }).collect();
+    let mut remotes: Vec<_> = target_repos
+        .iter()
+        .enumerate()
+        .map(|(idx, target)| {
+            let target = fs::canonicalize(target).unwrap();
+            let remote_name = format!("import_{idx}");
+            let _ = repo.remote_delete(&remote_name);
+            let remote = repo
+                .remote(
+                    &remote_name,
+                    format!("file://{}", target.to_str().unwrap()).as_str(),
+                )
+                .unwrap();
+            (remote_name, remote)
+        })
+        .collect();
 
     warn!("[{}] Fetching remotes...", job_idx);
-    let remotes: Vec<_> = remotes.par_iter_mut().map(|(remote_name, remote)| {
-        remote.fetch(
-            &[format!(
-                "refs/heads/master:refs/remotes/{remote_name}/master"
-            )],
-            None,
-            None,
-        ).unwrap(); // To-do: handle errors
-        // warn!("[{}] Fetched remote", job_idx);
-        remote_name
-    }).collect();
+    let remotes: Vec<_> = remotes
+        .par_iter_mut()
+        .map(|(remote_name, remote)| {
+            remote
+                .fetch(
+                    &[format!(
+                        "refs/heads/master:refs/remotes/{remote_name}/master"
+                    )],
+                    None,
+                    None,
+                )
+                .unwrap(); // To-do: handle errors
+                           // warn!("[{}] Fetched remote", job_idx);
+            remote_name
+        })
+        .collect();
 
-    let commits: Vec<_> = remotes.into_iter().flat_map(|name| {
-        match repo
-            .find_reference(format!("refs/remotes/{name}/master").as_str()) {
-            Ok(r) => Some(r.peel_to_commit().unwrap()),
-            Err(_) => None
-        }
-    }).collect();
+    let commits: Vec<_> = remotes
+        .into_iter()
+        .flat_map(|name| {
+            match repo.find_reference(format!("refs/remotes/{name}/master").as_str()) {
+                Ok(r) => Some(r.peel_to_commit().unwrap()),
+                Err(_) => None,
+            }
+        })
+        .collect();
 
     let total = commits.len();
     warn!("[{}] Merging {} remotes", job_idx, total);
@@ -64,7 +77,8 @@ pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
 
     for commit in &commits {
         // Combine all trees into a single treebuilder.
-        commit.tree()
+        commit
+            .tree()
             .unwrap()
             .walk(TreeWalkMode::PreOrder, |x, y| {
                 // code/adb3/1.1.0/tar.gz/ -> 4 splits.
@@ -96,7 +110,7 @@ pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
         &base_tree,
         &parent_commits,
     )
-        .unwrap();
+    .unwrap();
 
     warn!("[{}] Writing index", job_idx);
     repo_idx.write().unwrap();

@@ -9,25 +9,23 @@ export CONCURRENCY="$3"
 
 export LIMIT="5000"
 
-export SPLITS_DIR="$WORKSPACE"/splits/
 export URLS_DIR="$WORKSPACE"/urls/
 export INDEX_FILE="$WORKSPACE"/index
-export SPLITS_INDEX_FILE="$WORKSPACE"/splits-index
 export PARTITIONS_DIR="$WORKSPACE"/partitions/
 export TEMP_DIR="$WORKSPACE"/temp/
 
 echo "Removing existing workspace"
 #mv "$WORKSPACE" "old_$WORKSPACE" && rm -rf "old_$WORKSPACE" &
-rm -rf "$WORKSPACE"
 
+rm -rf "$WORKSPACE"
 mkdir -p "$WORKSPACE"
-mkdir -p "$SPLITS_DIR"
 mkdir -p "$URLS_DIR"
 mkdir -p "$PARTITIONS_DIR"
 mkdir -p "$TEMP_DIR"
 
+
 echo "creating URLs"
-./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
+./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit=25
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"

@@ -1,14 +1,13 @@
-use std::io;
 use std::io::{BufReader, Read};
 
 use bzip2::read::BzDecoder;
-use content_inspector::{inspect, ContentType};
-use flate2::read::GzDecoder;
-use reqwest::blocking::Response;
-use tar::{Archive, Entries};
-use zip::read::read_zipfile_from_stream;
 
-const MAX_FILE_SIZE: u64 = 1024 * 1024 * 15;
+use crate::file_inspection::{skip_archive_entry, write_archive_entry_to_odb};
+use flate2::read::GzDecoder;
+use git2::{Odb, Oid};
+use reqwest::blocking::Response;
+use tar::{Archive, Entries, Entry};
+use zip::read::read_zipfile_from_stream;
 
 pub enum PackageArchive {
     Zip(BufReader<Response>),
@@ -37,87 +36,84 @@ impl PackageArchive {
         }
     }
 
-    #[inline(always)]
-    pub fn all_items(&mut self) -> PackageEnumIterator {
+    pub fn all_items<'a>(&'a mut self, odb: &'a Odb<'a>) -> PackageEnumIterator<'a> {
         match self {
-            PackageArchive::Zip(z) => PackageEnumIterator::Zip(z),
-            PackageArchive::TarGz(t) => PackageEnumIterator::TarGz(t.entries().unwrap()),
-            PackageArchive::TarBz(t) => PackageEnumIterator::TarBz(t.entries().unwrap()),
+            PackageArchive::Zip(z) => PackageEnumIterator::Zip(z, odb),
+            PackageArchive::TarGz(t) => PackageEnumIterator::TarGz(t.entries().unwrap(), odb),
+            PackageArchive::TarBz(t) => PackageEnumIterator::TarBz(t.entries().unwrap(), odb),
         }
     }
 }
 
 pub enum PackageEnumIterator<'a> {
-    Zip(&'a mut BufReader<Response>),
-    TarGz(Entries<'a, GzDecoder<Response>>),
-    TarBz(Entries<'a, BzDecoder<Response>>),
+    Zip(&'a mut BufReader<Response>, &'a Odb<'a>),
+    TarGz(Entries<'a, GzDecoder<Response>>, &'a Odb<'a>),
+    TarBz(Entries<'a, BzDecoder<Response>>, &'a Odb<'a>),
 }
 
 impl<'a> Iterator for PackageEnumIterator<'a> {
-    type Item = anyhow::Result<(String, FileContent)>;
+    type Item = anyhow::Result<(String, u64, Oid)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            PackageEnumIterator::Zip(v) => loop {
+            PackageEnumIterator::Zip(v, odb) => loop {
                 return match read_zipfile_from_stream(v) {
                     Ok(z) => match z {
                         None => None,
-                        Some(z) => {
+                        Some(mut z) => {
                             if !z.is_file() {
                                 continue;
                             }
-                            if z.size() > MAX_FILE_SIZE {
+                            if skip_archive_entry(z.name(), z.size()) {
                                 continue;
                             }
                             let name = z.name().to_string();
-                            let content = inspect_content(z);
-                            Some(Ok((name, content)))
+                            let size = z.size();
+                            match write_archive_entry_to_odb(size, &mut z, odb) {
+                                Ok(v) => match v {
+                                    None => continue,
+                                    Some(oid) => Some(Ok((name, size, oid))),
+                                },
+                                Err(e) => Some(Err(e)),
+                            }
                         }
                     },
                     Err(_) => None,
                 };
             },
-            PackageEnumIterator::TarGz(t) => match t.flatten().find(|v| v.size() != 0) {
-                None => None,
-                Some(v) => {
-                    if v.size() > MAX_FILE_SIZE {
-                        return None;
-                    }
-                    let name = v.path().unwrap().to_str().unwrap().to_string();
-                    let content = inspect_content(v);
-                    Some(Ok((name, content)))
-                }
-            },
-            PackageEnumIterator::TarBz(t) => match t.flatten().find(|v| v.size() != 0) {
-                None => None,
-                Some(v) => {
-                    if v.size() > MAX_FILE_SIZE {
-                        return None;
-                    }
-                    let name = v.path().unwrap().to_str().unwrap().to_string();
-                    let content = inspect_content(v);
-                    Some(Ok((name, content)))
-                }
-            },
+            PackageEnumIterator::TarGz(t, odb) => find_tar_item(t, odb),
+            PackageEnumIterator::TarBz(t, odb) => find_tar_item(t, odb),
         }
     }
 }
 
-#[derive(Debug)]
-pub enum FileContent {
-    Binary,
-    Text(Vec<u8>),
+fn find_tar_item(
+    items: &mut Entries<impl Read>,
+    odb: &Odb,
+) -> Option<anyhow::Result<(String, u64, Oid)>> {
+    while let Some(mut z) = items.flatten().find(|v| v.size() != 0) {
+        match handle_tar_gz(&mut z, odb) {
+            Ok(v) => match v {
+                None => continue,
+                Some(v) => return Some(Ok(v)),
+            },
+            Err(e) => return Some(Err(e)),
+        }
+    }
+    None
 }
 
-#[inline(always)]
-fn inspect_content<R: Read>(mut item: R) -> FileContent {
-    let mut first = [0; 1024];
-    let n = item.read(&mut first[..]).unwrap();
-    let content_type = inspect(&first[..n]);
-    if content_type == ContentType::BINARY {
-        return FileContent::Binary;
+fn handle_tar_gz(
+    mut z: &mut Entry<impl Read>,
+    odb: &Odb,
+) -> anyhow::Result<Option<(String, u64, Oid)>> {
+    let path = z.path().unwrap().to_str().unwrap().to_string();
+    let size = z.size();
+    if skip_archive_entry(&path, size) {
+        return Ok(None);
     }
-    let mut read_vec = first[..n].to_vec();
-    io::copy(&mut item, &mut read_vec).unwrap();
-    FileContent::Text(read_vec)
+    if let Some(oid) = write_archive_entry_to_odb(size, &mut z, odb)? {
+        return Ok(Some((path, size, oid)));
+    }
+    Ok(None)
 }

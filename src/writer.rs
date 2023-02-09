@@ -1,11 +1,13 @@
 use crate::data::{JobInfo, PackageInfo};
 
 use git2::{
-    Buf, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Oid, Repository, Signature, Time,
+    Buf, FileMode, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Repository, Signature,
+    Time, Tree, TreeWalkMode,
 };
-use log::{info, warn};
+use log::{error, info, warn};
 
-use crate::archive::{FileContent, PackageArchive};
+use crate::archive::PackageArchive;
+use git2::build::TreeUpdateBuilder;
 use reqwest::blocking::Client;
 use std::io::Write;
 
@@ -25,16 +27,29 @@ pub fn flush_repo(
     repo_idx.write().unwrap();
 }
 
-pub fn commit(
-    repo: &Repository,
-    repo_idx: &mut Index,
-    job_info: &JobInfo,
-    i: PackageInfo,
-    index: Vec<TextFile>,
-) -> usize {
+fn merge_tree<'a>(tree: &Tree, repo: &'a Repository, base_tree: &Tree) -> Tree<'a> {
+    let mut update = TreeUpdateBuilder::new();
+    tree.walk(TreeWalkMode::PostOrder, |x, y| {
+        // code/adb3/1.1.0/tar.gz/ -> 4 splits.
+        if let (4, Some(ObjectType::Tree)) = (x.split('/').count(), y.kind()) {
+            update.upsert(
+                format!("{}{}", x, y.name().unwrap()),
+                y.id(),
+                FileMode::Tree,
+            );
+            return 1; // Don't dive deeper
+        }
+        0
+    })
+    .unwrap();
+    let new_tree_oid = update.create_updated(repo, base_tree).unwrap();
+    repo.find_tree(new_tree_oid).unwrap()
+}
+
+pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: Index) {
     let filename = i.package_filename();
-    let index_time = IndexTime::new(i.uploaded_on.timestamp() as i32, 0);
-    let total_bytes = index.iter().map(|v| v.size).sum::<usize>();
+    // let index_time = IndexTime::new(i.uploaded_on.timestamp() as i32, 0);
+    // let total_bytes = index.iter().map(|v| v.size).sum::<usize>();
     let signature = Signature::new(
         "Tom Forbes",
         "tom@tomforb.es",
@@ -42,89 +57,56 @@ pub fn commit(
     )
     .unwrap();
 
-    warn!(
-        "[{} {}/{}] Starting adding {} entries ({} mb)",
-        job_info,
-        i.index,
-        job_info.total,
-        index.len(),
-        total_bytes / 1024 / 1024
-    );
     let total = index.len();
-    for text_file in index.into_iter() {
-        let entry = IndexEntry {
-            ctime: index_time,
-            mtime: index_time,
-            dev: 0,
-            ino: 0,
-            mode: 0o100644,
-            uid: 0,
-            gid: 0,
-            file_size: text_file.size as u32,
-            id: text_file.oid,
-            flags: 0,
-            flags_extended: 0,
-            path: text_file.path,
-        };
-        repo_idx.add(&entry).unwrap();
-    }
 
-    let oid = repo_idx.write_tree().unwrap_or_else(|e| {
+    let oid = index.write_tree_to(repo).unwrap_or_else(|e| {
         panic!(
             "Error writing {} {}/{} {} {}: {}",
             job_info, i.index, job_info.total, i.version, i.url, e
         )
     });
 
-    let tree = repo.find_tree(oid).unwrap();
+    let mut tree = repo.find_tree(oid).unwrap();
 
     let parent = match &repo.head() {
-        Ok(v) => Some(v.peel_to_commit().unwrap()),
+        Ok(v) => {
+            let commit = v.peel_to_commit().unwrap();
+            let commit_tree = commit.tree().unwrap();
+            println!("Merging trees!");
+            tree = merge_tree(&tree, repo, &commit_tree);
+            println!("Tree count: {}", tree.len());
+            Some(commit)
+        }
         Err(_) => None,
     };
+
     let parent = match &parent {
         None => vec![],
         Some(p) => vec![p],
     };
-    repo.commit(
-        Some("HEAD"),
-        &signature,
-        &signature,
-        format!("{} {} ({})", job_info.name, i.version, filename).as_str(),
-        &tree,
-        &parent,
-    )
-    .unwrap();
+    let x = repo
+        .commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            format!("{} {} ({})", job_info.name, i.version, filename).as_str(),
+            &tree,
+            &parent,
+        )
+        .unwrap();
+    println!("OID: {x}");
     warn!(
         "[{} {}/{}] Committed {} entries",
         job_info, i.index, job_info.total, total
     );
-
-    total_bytes
 }
-
-pub struct TextFile {
-    pub path: Vec<u8>,
-    pub oid: Oid,
-    pub size: usize,
-}
-
-const IGNORED_SUFFIXES: &[&str] = &[
-    // Skip METADATA files. These can contain gigantic readme files which can bloat the repo?
-    ".dist-info/METADATA",
-    // Same for license files
-    ".dist-info/LICENSE",
-    ".dist-info/RECORD",
-    ".dist-info/TOP_LEVEL",
-    ".dist-info/DESCRIPTION.rst",
-];
 
 pub fn run<'a>(
     client: &mut Client,
     info: &'a JobInfo,
     item: PackageInfo,
     repo_odb: &Odb,
-) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Vec<TextFile>)>> {
+) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Index)>> {
     warn!("[{} {}/{}] Starting", info, item.index, info.total);
     let package_filename = item.package_filename();
 
@@ -146,49 +128,67 @@ pub fn run<'a>(
         Some(v) => v,
     };
 
-    let mut has_any_text_files = false;
+    let mut file_count: usize = 0;
 
-    let mut entries = Vec::with_capacity(1024);
+    // let entries = Vec::with_capacity(1024);
     warn!("[{} {}/{}] Begin iterating", info, item.index, info.total);
 
-    for (file_name, content) in archive.all_items().flatten() {
-        if let FileContent::Text(content) = content {
-            if IGNORED_SUFFIXES.iter().any(|s| file_name.ends_with(s))
-                || file_name.contains("/.git/")
-                || file_name.ends_with("/.git")
-            {
+    let mut index = Index::new().unwrap();
+    let index_time = IndexTime::new(item.uploaded_on.timestamp() as i32, 0);
+
+    for v in archive.all_items(repo_odb) {
+        let (file_name, size, oid) = match v {
+            Ok(v) => v,
+            Err(e) => {
+                error!(
+                    "[{} {}/{}] Error iterating: {}",
+                    info, item.index, info.total, e
+                );
                 continue;
             }
-            let file_name = if file_name.starts_with(&tar_gz_first_segment) {
-                &file_name[tar_gz_first_segment.len()..]
-            } else {
-                &*file_name
-            };
-            let path = format!(
-                "code/{}/{}/{}/{file_name}",
-                info.name, item.version, reduced_package_filename
-            )
-            .replace("/./", "/")
-            .replace("/../", "/");
+        };
+        let file_name = if file_name.starts_with(&tar_gz_first_segment) {
+            &file_name[tar_gz_first_segment.len()..]
+        } else {
+            &*file_name
+        };
 
-            let oid = repo_odb.write(ObjectType::Blob, &content).unwrap();
-            entries.push(TextFile {
-                path: path.into_bytes(),
-                oid,
-                size: content.len(),
-            });
-            has_any_text_files = true;
-        }
+        let path = format!(
+            "code/{}/{}/{}/{file_name}",
+            info.name, item.version, reduced_package_filename
+        )
+        .replace("/./", "/")
+        .replace("/../", "/");
+
+        println!("{package_filename} got {path}");
+
+        let entry = IndexEntry {
+            ctime: index_time,
+            mtime: index_time,
+            dev: 0,
+            ino: 0,
+            mode: 0o100644,
+            uid: 0,
+            gid: 0,
+            file_size: size as u32,
+            id: oid,
+            flags: 0,
+            flags_extended: 0,
+            path: path.into_bytes(),
+        };
+        index.add(&entry).unwrap();
+        file_count += 1;
     }
 
-    if !has_any_text_files {
+    if file_count == 0 {
+        warn!("[{} {}/{}] No files added", info, item.index, info.total);
         return Ok(None);
     }
 
     warn!(
-        "[{} {}/{}] Finished iterating",
-        info, item.index, info.total
+        "[{} {}/{}] Finished iterating: {} files",
+        info, item.index, info.total, file_count
     );
 
-    Ok(Some((info, item, entries)))
+    Ok(Some((info, item, index)))
 }
