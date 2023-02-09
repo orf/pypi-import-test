@@ -35,4 +35,4 @@ indicatif = "0.17.3"
 [profile.release]
 codegen-units = 1
 lto = true
-debug = true
+#debug = true
