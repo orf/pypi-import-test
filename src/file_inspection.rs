@@ -22,9 +22,10 @@ const EXCLUDE_SUFFIXES: &[&str] = &[
     ".map",
     ".html",
     ".po",
+    // CSS and HTTP stuff
     ".css",
-    ".c",
-    ".cpp",
+    ".scss",
+    ".less",
 
     // Model files (icub_models)
     ".stl",
@@ -37,7 +38,9 @@ const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
     (".json", MB),
     (".csv", MB),
     (".txt", 2 * MB),
-    (".svg", 5 * KB)
+    (".svg", 5 * KB),
+    (".c", 2 * MB),
+    (".cpp", 2 * MB),
 ];
 
 pub fn write_archive_entry_to_odb<R: Read>(
