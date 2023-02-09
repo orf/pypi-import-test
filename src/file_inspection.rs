@@ -5,8 +5,9 @@ use log::debug;
 use std::io;
 use std::io::{Read, Write};
 
-const MAX_FILE_SIZE: u64 = 1024 * 1024 * 15;
-const MIN_FILE_SIZE: u64 = 1;
+const KB: u64 = 1024;
+const MB: u64 = 1024 * KB;
+const MAX_FILE_SIZE: u64 = 15 * MB;
 
 // Top file extensions include PKG-INFO, html and JS. We don't really want those.
 const EXCLUDE_SUFFIXES: &[&str] = &[
@@ -24,6 +25,19 @@ const EXCLUDE_SUFFIXES: &[&str] = &[
     ".css",
     ".c",
     ".cpp",
+
+    // Model files (icub_models)
+    ".stl",
+    ".dae",
+];
+
+// Some files are useful to include, but can be super needlessly large (think big datasets).
+// Here we can filter them out.
+const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
+    (".json", MB),
+    (".csv", MB),
+    (".txt", 2 * MB),
+    (".svg", 5 * KB)
 ];
 
 pub fn write_archive_entry_to_odb<R: Read>(
@@ -45,13 +59,18 @@ pub fn write_archive_entry_to_odb<R: Read>(
 }
 
 pub fn skip_archive_entry(name: &str, size: u64) -> bool {
-    if !(MIN_FILE_SIZE..=MAX_FILE_SIZE).contains(&size) {
+    if !(1..=MAX_FILE_SIZE).contains(&size) {
         debug!("Path {name} has size {size}, skipping");
         return true;
     }
     for suffix in EXCLUDE_SUFFIXES {
         if name.ends_with(suffix) {
             debug!("Name {} ends with suffix {}", name, suffix);
+            return true;
+        }
+    }
+    for (suffix, max_size) in MAX_FILE_SIZES_BY_SUFFIX {
+        if name.ends_with(suffix) && size > *max_size {
             return true;
         }
     }
