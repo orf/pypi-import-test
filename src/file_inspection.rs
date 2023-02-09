@@ -41,6 +41,8 @@ const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
     (".svg", 5 * KB),
     (".c", 2 * MB),
     (".cpp", 2 * MB),
+    // pyedflib contains large EDF files
+    (".edf", 1 * MB),
 ];
 
 pub fn write_archive_entry_to_odb<R: Read>(
