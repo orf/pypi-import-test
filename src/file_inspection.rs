@@ -20,8 +20,8 @@ const EXCLUDE_SUFFIXES: &[&str] = &[
     ".pyc",
     ".js",
     ".map",
-    ".html",
     ".po",
+
     // CSS and HTTP stuff
     ".css",
     ".scss",
@@ -42,6 +42,7 @@ const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
     (".svg", 5 * KB),
     (".c", 2 * MB),
     (".cpp", 2 * MB),
+    (".html", 15 * KB),
     // pyedflib contains large EDF files
     (".edf", 1 * MB),
 ];
