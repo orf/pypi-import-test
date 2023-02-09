@@ -36,6 +36,7 @@ const EXCLUDE_SUFFIXES: &[&str] = &[
 // Here we can filter them out.
 const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
     (".json", MB),
+    (".geojson", MB),
     (".csv", MB),
     (".txt", 2 * MB),
     (".svg", 5 * KB),
