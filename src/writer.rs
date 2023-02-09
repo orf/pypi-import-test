@@ -72,9 +72,7 @@ pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: 
         Ok(v) => {
             let commit = v.peel_to_commit().unwrap();
             let commit_tree = commit.tree().unwrap();
-            println!("Merging trees!");
             tree = merge_tree(&tree, repo, &commit_tree);
-            println!("Tree count: {}", tree.len());
             Some(commit)
         }
         Err(_) => None,
@@ -84,17 +82,15 @@ pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: 
         None => vec![],
         Some(p) => vec![p],
     };
-    let x = repo
-        .commit(
-            Some("HEAD"),
-            &signature,
-            &signature,
-            format!("{} {} ({})", job_info.name, i.version, filename).as_str(),
-            &tree,
-            &parent,
-        )
-        .unwrap();
-    println!("OID: {x}");
+    repo.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        format!("{} {} ({})", job_info.name, i.version, filename).as_str(),
+        &tree,
+        &parent,
+    )
+    .unwrap();
     warn!(
         "[{} {}/{}] Committed {} entries",
         job_info, i.index, job_info.total, total
@@ -159,8 +155,6 @@ pub fn run<'a>(
         )
         .replace("/./", "/")
         .replace("/../", "/");
-
-        println!("{package_filename} got {path}");
 
         let entry = IndexEntry {
             ctime: index_time,

@@ -176,9 +176,7 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
             let sender = sender;
             job.packages
                 .into_par_iter()
-                .filter(|v| v.version == "0.7.2rc36" && v.url.to_string().contains(".tar.gz"))
                 .for_each_init(Client::new, |client, item| {
-                    println!("URL: {}", item.url);
                     let error_ctx = format!(
                         "Name: {}, version: {}, url: {}",
                         job.info.name, item.version, item.url
