@@ -44,7 +44,7 @@ const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
     (".cpp", 2 * MB),
     (".html", 15 * KB),
     // pyedflib contains large EDF files
-    (".edf", 1 * MB),
+    (".edf", MB),
 ];
 
 pub fn write_archive_entry_to_odb<R: Read>(
@@ -59,10 +59,12 @@ pub fn write_archive_entry_to_odb<R: Read>(
     if content_type == ContentType::BINARY {
         return Ok(None);
     }
-    let mut writer = odb.writer(size as usize, ObjectType::Blob)?;
+    let odb_writer = odb.writer(size as usize, ObjectType::Blob)?;
+    let mut writer = io::BufWriter::new(odb_writer);
     writer.write_all(first)?;
     io::copy(&mut reader, &mut writer)?;
-    Ok(Some(writer.finalize()?))
+    writer.flush().unwrap();
+    Ok(Some(writer.get_mut().finalize()?))
 }
 
 pub fn skip_archive_entry(name: &str, size: u64) -> bool {
