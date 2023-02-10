@@ -109,12 +109,17 @@ pub fn run<'a>(
     let package_extension = package_filename.rsplit('.').next().unwrap();
     // The package filename contains the package name and the version. We don't need this in the output, so just ignore it.
     // The format is `{name}-{version}-{rest}`, so we strip out `rest`
-    let reduced_package_filename =
-        &package_filename[(info.name.len() + 1 + item.version.len() + 1)..];
+    // Some packages, like `free-valorant-points-redeem-code-v-3693.zip`, don't fit this convention.
+    // In this case just return the extension.
+    let name_version = format!("{}-{}", info.name, item.version);
+    let reduced_package_filename = match package_filename.starts_with(&name_version) {
+        true => &package_filename[(name_version.len() + 1)..],
+        false => package_filename.rsplit('.').next().unwrap(),
+    };
 
     // .tar.gz files unwrap all contents to paths like `Django-1.10rc1/...`. This isn't great,
     // so we detect this and strip the prefix.
-    let tar_gz_first_segment = format!("{}-{}/", info.name, item.version);
+    let tar_gz_first_segment = format!("{}/", name_version);
 
     let download_response = client.get(item.url.clone()).send()?;
     let mut archive = match PackageArchive::new(package_extension, download_response) {

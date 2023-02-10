@@ -11,7 +11,6 @@ const MAX_FILE_SIZE: u64 = 15 * MB;
 
 // Top file extensions include PKG-INFO, html and JS. We don't really want those.
 const EXCLUDE_SUFFIXES: &[&str] = &[
-    "/PKG-INFO",
     ".dist-info/METADATA",
     ".dist-info/RECORD",
     ".dist-info/LICENSE",
@@ -76,6 +75,9 @@ pub fn skip_archive_entry(name: &str, size: u64) -> bool {
         debug!("Path {name} has size {size}, skipping");
         return true;
     }
+    if name == "PKG-INFO" || name.contains("/.git/") || name.contains("/__pycache__/") {
+        return true;
+    }
     if EXCLUDE_SUFFIXES.iter().any(|v| name.ends_with(v)) {
         return true;
     }
@@ -83,10 +85,6 @@ pub fn skip_archive_entry(name: &str, size: u64) -> bool {
         .iter()
         .any(|(suffix, max_size)| name.ends_with(suffix) && size > *max_size)
     {
-        return true;
-    }
-    if name.contains("/.git/") || name.contains("/__pycache__/") {
-        debug!("Path {name} contains /.git/ or /__pycache__/");
         return true;
     }
     debug!("Not skipping {name}");
