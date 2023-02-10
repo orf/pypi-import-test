@@ -180,6 +180,7 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
                 || {
                     Client::builder()
                         .http2_prior_knowledge()
+                        .http2_adaptive_window(true)
                         .user_agent(APP_USER_AGENT)
                         .build()
                         .unwrap()
