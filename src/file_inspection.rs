@@ -3,7 +3,7 @@ use content_inspector::{inspect, ContentType};
 use git2::{ObjectType, Odb, Oid};
 use log::debug;
 use std::io;
-use std::io::{Read, Write};
+use std::io::Read;
 
 const KB: u64 = 1024;
 const MB: u64 = 1024 * KB;
@@ -43,6 +43,7 @@ const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
     (".c", 2 * MB),
     (".cpp", 2 * MB),
     (".html", 15 * KB),
+    (".ipynb", 7 * MB),
     // pyedflib contains large EDF files
     (".edf", MB),
 ];
@@ -75,20 +76,15 @@ pub fn skip_archive_entry(name: &str, size: u64) -> bool {
         debug!("Path {name} has size {size}, skipping");
         return true;
     }
-    for suffix in EXCLUDE_SUFFIXES {
-        if name.ends_with(suffix) {
-            debug!("Name {} ends with suffix {}", name, suffix);
-            return true;
-        }
+    if EXCLUDE_SUFFIXES.iter().any(|v| name.ends_with(v)) {
+        return true;
     }
-    for (suffix, max_size) in MAX_FILE_SIZES_BY_SUFFIX {
-        if name.ends_with(suffix) && size > *max_size {
-            return true;
-        }
+    if MAX_FILE_SIZES_BY_SUFFIX
+        .iter()
+        .any(|(suffix, max_size)| name.ends_with(suffix) && size > *max_size)
+    {
+        return true;
     }
-    // if EXCLUDE_SUFFIXES.iter().any(|s| name.ends_with(s)) {
-    //     return true;
-    // }
     if name.contains("/.git/") || name.contains("/__pycache__/") {
         debug!("Path {name} contains /.git/ or /__pycache__/");
         return true;

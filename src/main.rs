@@ -12,7 +12,7 @@ use std::io::BufReader;
 
 use anyhow::Context;
 use clap::Parser;
-use git2::{Repository};
+use git2::Repository;
 use rayon::prelude::*;
 
 use std::path::PathBuf;
