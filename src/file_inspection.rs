@@ -75,7 +75,12 @@ pub fn skip_archive_entry(name: &str, size: u64) -> bool {
         debug!("Path {name} has size {size}, skipping");
         return true;
     }
-    if name == "PKG-INFO" || name.contains("/.git/") || name.contains("/__pycache__/") {
+    if name == "PKG-INFO"
+        || name.starts_with(".git/")
+        || name.starts_with("__pycache__/")
+        || name.contains("/.git/")
+        || name.contains("/__pycache__/")
+    {
         return true;
     }
     if EXCLUDE_SUFFIXES.iter().any(|v| name.ends_with(v)) {
