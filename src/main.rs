@@ -165,7 +165,7 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
         }
     };
 
-    let (sender, recv) = bounded::<(&JobInfo, PackageInfo, Index)>(20);
+    let (sender, recv) = bounded::<_>(20);
 
     let odb = repo.odb().unwrap();
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();

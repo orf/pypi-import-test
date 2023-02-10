@@ -28,6 +28,8 @@ const EXCLUDE_SUFFIXES: &[&str] = &[
     // Model files (icub_models)
     ".stl",
     ".dae",
+    // Ignore all .git files
+    ".git"
 ];
 
 // Some files are useful to include, but can be super needlessly large (think big datasets).
@@ -57,12 +59,10 @@ pub fn write_archive_entry_to_odb<R: Read>(
     if content_type == ContentType::BINARY {
         return Ok(None);
     }
-    let odb_writer = odb.writer(size as usize, ObjectType::Blob)?;
-    let mut writer = io::BufWriter::new(odb_writer);
+    let mut writer = odb.writer(size as usize, ObjectType::Blob)?;
     writer.write_all(first)?;
     io::copy(&mut reader, &mut writer)?;
-    writer.flush().unwrap();
-    Ok(Some(writer.get_mut().finalize()?))
+    Ok(Some(writer.finalize()?))
 }
 
 pub fn skip_archive_entry(name: &str, size: u64) -> bool {
