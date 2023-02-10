@@ -61,8 +61,8 @@ pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: 
 
     let oid = index.write_tree_to(repo).unwrap_or_else(|e| {
         panic!(
-            "Error writing {} {}/{} {} {}: {}",
-            job_info, i.index, job_info.total, i.version, i.url, e
+            "Error writing {} {}/{} {} {} (idx len {}): {}",
+            job_info, i.index, job_info.total, i.version, i.url, total, e,
         )
     });
 

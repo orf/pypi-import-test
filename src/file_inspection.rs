@@ -29,7 +29,7 @@ const EXCLUDE_SUFFIXES: &[&str] = &[
     ".stl",
     ".dae",
     // Ignore all .git files
-    ".git"
+    ".git",
 ];
 
 // Some files are useful to include, but can be super needlessly large (think big datasets).
@@ -59,10 +59,15 @@ pub fn write_archive_entry_to_odb<R: Read>(
     if content_type == ContentType::BINARY {
         return Ok(None);
     }
-    let mut writer = odb.writer(size as usize, ObjectType::Blob)?;
-    writer.write_all(first)?;
-    io::copy(&mut reader, &mut writer)?;
-    Ok(Some(writer.finalize()?))
+    // The code below doesn't appear to work correctly.
+    // let mut writer = odb.writer(size as usize, ObjectType::Blob)?;
+    // writer.write_all(first)?;
+    // io::copy(&mut reader, &mut writer)?;
+    // Ok(Some(writer.finalize()?))
+    let mut vec = Vec::with_capacity(size as usize);
+    vec.extend_from_slice(first);
+    io::copy(&mut reader, &mut vec)?;
+    Ok(Some(odb.write(ObjectType::Blob, &vec)?))
 }
 
 pub fn skip_archive_entry(name: &str, size: u64) -> bool {
