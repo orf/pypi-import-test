@@ -121,9 +121,15 @@ fn main() -> anyhow::Result<()> {
 
             let reader = BufReader::new(File::open(input_file).unwrap());
             let input: DownloadJob = serde_json::from_reader(reader).unwrap();
-            if run_multiple(&work_path, input)? {
-                fs::create_dir(&finished_path).unwrap();
-                fs::rename(&work_path, &finished_path).unwrap();
+            match run_multiple(&work_path, input)? {
+                PackageResult::Complete => {
+                    fs::create_dir(&finished_path).unwrap();
+                    fs::rename(&work_path, &finished_path).unwrap();
+                }
+                PackageResult::Empty | PackageResult::Excluded => {
+                    // Delete the path
+                    fs::remove_dir_all(&work_path).unwrap()
+                }
             }
         }
         RunType::CreateUrls {
@@ -150,7 +156,17 @@ fn main() -> anyhow::Result<()> {
 
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
-fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
+enum PackageResult {
+    Complete,
+    Empty,
+    Excluded,
+}
+
+fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<PackageResult> {
+    if file_inspection::is_excluded_package(&job.info.name) {
+        return Ok(PackageResult::Excluded);
+    }
+
     git2::opts::strict_object_creation(false);
     git2::opts::strict_hash_verification(false);
 
@@ -212,5 +228,9 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<bool> {
     })
     .unwrap();
 
-    Ok(should_copy_repo)
+    if should_copy_repo {
+        Ok(PackageResult::Complete)
+    } else {
+        Ok(PackageResult::Empty)
+    }
 }

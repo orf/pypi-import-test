@@ -53,11 +53,7 @@ pub fn extract_urls(
     let mut files: Vec<_> = match find {
         None => files_iter.collect(),
         Some(matches) => files_iter
-            .filter(|e| {
-                matches
-                    .iter()
-                    .any(|m| e.file_name.to_str().unwrap().starts_with(m))
-            })
+            .filter(|e| matches.iter().any(|m| e.file_name.to_str().unwrap() == m))
             .collect(),
     };
 

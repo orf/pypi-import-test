@@ -9,6 +9,34 @@ const KB: u64 = 1024;
 const MB: u64 = 1024 * KB;
 const MAX_FILE_SIZE: u64 = 15 * MB;
 
+// Largest packages - to check
+// 265.9 MiB [##########] /pydwf_0.json
+// 222.1 MiB [########  ] /yourbase_2.json
+// 209.8 MiB [#######   ] /yourbase_1.json
+// 195.4 MiB [#######   ] /home-assistant-frontend_0.json
+// 179.3 MiB [######    ] /ais-dom-frontend_0.json
+// 168.3 MiB [######    ] /yourbase_0.json
+// 156.2 MiB [#####     ] /pmagpy_0.json
+// 154.6 MiB [#####     ] /home-assistant-frontend_1.json
+// 149.1 MiB [#####     ] /jijmodeling_1.json
+// 146.9 MiB [#####     ] /pyfai_0.json
+// 139.7 MiB [#####     ] /mastapy_0.json
+// 128.7 MiB [####      ] /cityseer_0.json
+// 123.6 MiB [####      ] /hearthstone-data_0.json
+// 118.0 MiB [####      ] /ansible_0.json
+// 114.5 MiB [####      ] /pymc3_0.json
+// 111.7 MiB [####      ] /janome_0.json
+// 111.6 MiB [####      ] /areixio_0.json
+// 107.2 MiB [####      ] /pyshtools_0.json
+// 106.6 MiB [####      ] /robosuite_0.json
+// 106.5 MiB [####      ] /oci-cli_0.json
+// 104.2 MiB [###       ] /test-datasets-1_0.json
+// 103.5 MiB [###       ] /udkanbun_0.json
+const EXCLUDE_PACKAGES: &[&str] = &[
+    // Just a bunch of python files containing base64 encoded contents
+    "pydwf",
+];
+
 // Top file extensions include PKG-INFO, html and JS. We don't really want those.
 const EXCLUDE_SUFFIXES: &[&str] = &[
     ".dist-info/METADATA",
@@ -46,6 +74,10 @@ const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
     // pyedflib contains large EDF files
     (".edf", MB),
 ];
+
+pub fn is_excluded_package(package_name: &str) -> bool {
+    EXCLUDE_PACKAGES.contains(&package_name)
+}
 
 pub fn write_archive_entry_to_odb<R: Read>(
     size: u64,
