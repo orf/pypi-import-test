@@ -15,6 +15,15 @@ const EXCLUDE_PACKAGES: &[&str] = &[
     "pydwf",
     // Gigantic, not even needed anymore. Same package as tensorflow.
     "tensorflow-gpu",
+    "tensorflow-cpu",
+    // Nightly tensorflow packages account for a _lot_ of space
+    "tf-nightly",
+    "tf-nightly-cpu",
+    "tensorflow-io-nightly",
+    "tf-nightly-intel",
+    "tf-nightly-cpu-aws",
+    // Other misc nightly packages in the top 10
+    "pyagrum-nightly",
 ];
 
 lazy_static! {
