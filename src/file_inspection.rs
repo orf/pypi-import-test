@@ -61,7 +61,7 @@ const MAX_FILE_SIZES_BY_SUFFIX: &[(&str, u64)] = &[
     (".c", 2 * MB),
     (".cpp", 2 * MB),
     (".html", 15 * KB),
-    (".ipynb", 7 * MB),
+    (".ipynb", 5 * MB),
     // pyedflib contains large EDF files
     (".edf", MB),
     (".log", 3 * MB),
