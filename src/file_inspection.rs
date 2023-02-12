@@ -23,11 +23,7 @@ lazy_static! {
         "static/translations/.*\\w{32}.json$",
 
         // Top file extensions include PKG-INFO, html and JS. We don't really want those.
-        "\\.dist-info/METADATA",
-        "\\.dist-info/RECORD$",
-        "\\.dist-info/LICENSE$",
-        "\\.dist-info/WHEEL$",
-        "\\.dist-info/top_level\\.txt$",
+        "\\.dist-info/",
         "LICENSE$",
         "\\.js\\.LICENSE\\.txt$",
         "\\.pyc$",
