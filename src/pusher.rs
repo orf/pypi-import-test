@@ -3,8 +3,6 @@ use git2::{Commit, Repository, TreeWalkMode};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::io;
-use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -29,13 +27,11 @@ pub fn compute_push_strategy(repo: PathBuf) {
     }
     .to_string();
 
-    let mut locked_stdout = BufWriter::new(io::stdout().lock());
-    serde_json::to_writer(
-        &mut locked_stdout,
+    let output = serde_json::to_string(
         &ordered_commits(package_name, commits, &repo),
     )
     .unwrap();
-    locked_stdout.write_all("\n".as_ref()).unwrap();
+    println!("{output}");
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -88,6 +84,7 @@ fn ordered_commits(
             .unwrap();
         if running_total >= TOTAL_FILES_PER_PUSH {
             push_order.push(commit.id().to_string());
+            running_total = 0;
         }
     }
 
