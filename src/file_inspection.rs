@@ -13,6 +13,8 @@ const MAX_FILE_SIZE: u64 = 15 * MB;
 const EXCLUDE_PACKAGES: &[&str] = &[
     // Just a bunch of python files containing base64 encoded contents
     "pydwf",
+    // Gigantic, not even needed anymore. Same package as tensorflow.
+    "tensorflow-gpu",
 ];
 
 lazy_static! {
@@ -39,6 +41,9 @@ lazy_static! {
         "\\.stl$",
         "\\.dae$",
         "\\.scz$",
+
+        // _possibly_ skip checkpoints?
+        // "/\\.ipynb_checkpoints/"
 
         // Specific annoyances
         "^PKG-INFO$",
@@ -87,6 +92,10 @@ pub fn write_archive_entry_to_odb<R: Read>(
     // large repositories. They appear to always start with this token.
     if first.starts_with("__pyarmor".as_ref()) {
         return Ok(None);
+    }
+    // Ignore git LFS files
+    if first.starts_with("version https://git-lfs".as_ref()) {
+        return Ok(None)
     }
     // The code below doesn't appear to work correctly.
     // let mut writer = odb.writer(size as usize, ObjectType::Blob)?;
