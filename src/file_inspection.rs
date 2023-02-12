@@ -53,7 +53,7 @@ lazy_static! {
 
         // Specific annoyances
         "PKG-INFO$",
-        "\\/.git/",
+        "/\\.git/",
         "\\.git$",
         "/?__pycache__/?",
     ]).unwrap();
