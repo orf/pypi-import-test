@@ -123,6 +123,9 @@ fn main() -> anyhow::Result<()> {
             let input: DownloadJob = serde_json::from_reader(reader).unwrap();
             match run_multiple(&work_path, input)? {
                 PackageResult::Complete => {
+                    if finished_path.exists() {
+                        fs::remove_dir_all(&finished_path).unwrap();
+                    }
                     fs::create_dir(&finished_path).unwrap();
                     fs::rename(&work_path, &finished_path).unwrap();
                 }
