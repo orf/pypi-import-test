@@ -1,5 +1,5 @@
 use crate::writer::{package_name_to_path, CommitMessage};
-use git2::{Commit, Cred, Direction, PushOptions, RemoteCallbacks, Repository, TreeWalkMode};
+use git2::{Commit, Cred, Direction, ObjectType, PushOptions, RemoteCallbacks, Repository, TreeWalkMode};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -78,7 +78,6 @@ pub fn push(strategy_info: String) {
 
     println!("[{}] Starting pushing {} items", strategy.tag_name, push_order.len());
     for commit in push_order {
-        println!("[{}] Setting head to {commit}", strategy.tag_name);
         repo.set_head_detached(commit.parse().unwrap()).unwrap();
         println!("[{}] Pushing {commit}", strategy.tag_name);
         let refspec = format!("+HEAD:refs/tags/{}", strategy.tag_name);
@@ -154,9 +153,15 @@ fn ordered_commits(
         let p = tree.get_path(&path).unwrap_or_else(|_| panic!("Error unwrapping: {}", commit.message().unwrap()));
         let sub_tree = p.to_object(repo).unwrap().into_tree().unwrap();
         sub_tree
-            .walk(TreeWalkMode::PostOrder, |_, _| {
-                running_total += 1;
-                total_files += 1;
+            .walk(TreeWalkMode::PostOrder, |_, e| {
+                match e.kind() {
+                    Some(t) if t == ObjectType::Blob => {
+                        running_total += 1;
+                        total_files += 1;
+                    }
+                    _ => {}
+                };
+
                 0
             })
             .unwrap();
