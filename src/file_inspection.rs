@@ -26,6 +26,7 @@ lazy_static! {
         "\\.dist-info/METADATA",
         "\\.dist-info/RECORD$",
         "\\.dist-info/LICENSE$",
+        "\\.dist-info/WHEEL$",
         "\\.dist-info/top_level\\.txt$",
         "LICENSE$",
         "\\.js\\.LICENSE\\.txt$",

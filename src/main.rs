@@ -66,9 +66,13 @@ enum RunType {
         #[arg()]
         target_repos: Vec<PathBuf>,
     },
-    Push {
+    PushStrategy {
         #[arg()]
         base_repos: Vec<PathBuf>,
+    },
+    Push {
+        #[arg()]
+        strategy: String,
     },
     CreateUrls {
         #[arg()]
@@ -154,10 +158,13 @@ fn main() -> anyhow::Result<()> {
         } => {
             combine::combine(job_idx, base_repo, target_repos);
         }
-        RunType::Push { base_repos } => {
+        RunType::PushStrategy { base_repos } => {
             base_repos.into_par_iter().for_each(|base_repo| {
                 pusher::compute_push_strategy(base_repo);
             });
+        }
+        RunType::Push { strategy } => {
+            pusher::push(strategy);
         }
         RunType::ReadIndex { repo: _ } => {
             // let x = inspect::parse_index(repo);
