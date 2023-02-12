@@ -7,8 +7,11 @@ use git2::{
 use log::{error, info, warn};
 
 use crate::archive::PackageArchive;
+
 use git2::build::TreeUpdateBuilder;
 use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
+
 use std::io::Write;
 
 pub fn flush_repo(
@@ -46,7 +49,21 @@ fn merge_tree<'a>(tree: &Tree, repo: &'a Repository, base_tree: &Tree) -> Tree<'
     repo.find_tree(new_tree_oid).unwrap()
 }
 
-pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: Index) {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CommitMessage<'a> {
+    pub name: &'a str,
+    pub version: &'a str,
+    pub file: &'a str,
+    pub path: String,
+}
+
+pub fn commit(
+    repo: &Repository,
+    job_info: &JobInfo,
+    i: PackageInfo,
+    mut index: Index,
+    code_path: String,
+) {
     let filename = i.package_filename();
     // let index_time = IndexTime::new(i.uploaded_on.timestamp() as i32, 0);
     // let total_bytes = index.iter().map(|v| v.size).sum::<usize>();
@@ -82,12 +99,18 @@ pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: 
         None => vec![],
         Some(p) => vec![p],
     };
+    let commit_message = serde_json::to_string(&CommitMessage {
+        name: &job_info.name,
+        version: &i.version,
+        file: filename,
+        path: code_path,
+    })
+    .unwrap();
     repo.commit(
         Some("HEAD"),
         &signature,
         &signature,
-        // To-do: Make this JSON
-        format!("{} {} ({})", job_info.name, i.version, filename).as_str(),
+        &commit_message,
         &tree,
         &parent,
     )
@@ -122,7 +145,7 @@ pub fn run<'a>(
     info: &'a JobInfo,
     item: PackageInfo,
     repo_odb: &Odb,
-) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Index)>> {
+) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Index, String)>> {
     warn!("[{} {}/{}] Starting", info, item.index, info.total);
     let package_filename = item.package_filename();
     let package_extension = package_filename.rsplit('.').next().unwrap();
@@ -203,5 +226,5 @@ pub fn run<'a>(
         info, item.index, info.total, file_count
     );
 
-    Ok(Some((info, item, index)))
+    Ok(Some((info, item, index, code_prefix)))
 }

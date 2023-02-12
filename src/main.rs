@@ -68,7 +68,7 @@ enum RunType {
     },
     Push {
         #[arg()]
-        base_repo: PathBuf,
+        base_repos: Vec<PathBuf>,
     },
     CreateUrls {
         #[arg()]
@@ -154,8 +154,10 @@ fn main() -> anyhow::Result<()> {
         } => {
             combine::combine(job_idx, base_repo, target_repos);
         }
-        RunType::Push { base_repo } => {
-            pusher::push(base_repo);
+        RunType::Push { base_repos } => {
+            base_repos.into_par_iter().for_each(|base_repo| {
+                pusher::compute_push_strategy(base_repo);
+            });
         }
         RunType::ReadIndex { repo: _ } => {
             // let x = inspect::parse_index(repo);
@@ -229,8 +231,8 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<Package
             );
         });
 
-        for (job_info, package_info, index) in recv {
-            commit(&repo, job_info, package_info, index);
+        for (job_info, package_info, index, code_path) in recv {
+            commit(&repo, job_info, package_info, index, code_path);
             should_copy_repo = true;
         }
         if should_copy_repo {
