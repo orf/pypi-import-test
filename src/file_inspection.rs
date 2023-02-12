@@ -43,12 +43,10 @@ lazy_static! {
         // "/\\.ipynb_checkpoints/"
 
         // Specific annoyances
-        "^PKG-INFO$",
-        "^\\.git/",
-        "/\\.git/",
+        "PKG-INFO$",
+        "\\/.git/",
         "\\.git$",
-        "^__pycache__/",
-        "/__pycache__/",
+        "/?__pycache__/?",
     ]).unwrap();
 }
 
