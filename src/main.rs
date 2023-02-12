@@ -3,8 +3,8 @@ mod combine;
 mod data;
 mod file_inspection;
 mod inspect;
-mod writer;
 mod pusher;
+mod writer;
 
 use crossbeam::thread;
 use std::fs;
@@ -153,10 +153,10 @@ fn main() -> anyhow::Result<()> {
             target_repos,
         } => {
             combine::combine(job_idx, base_repo, target_repos);
-        },
-        RunType::Push { base_repo} => {
+        }
+        RunType::Push { base_repo } => {
             pusher::push(base_repo);
-        },
+        }
         RunType::ReadIndex { repo: _ } => {
             // let x = inspect::parse_index(repo);
             // println!("Total: {}", x);

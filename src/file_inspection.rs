@@ -95,7 +95,7 @@ pub fn write_archive_entry_to_odb<R: Read>(
     }
     // Ignore git LFS files
     if first.starts_with("version https://git-lfs".as_ref()) {
-        return Ok(None)
+        return Ok(None);
     }
     // The code below doesn't appear to work correctly.
     // let mut writer = odb.writer(size as usize, ObjectType::Blob)?;

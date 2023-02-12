@@ -41,7 +41,7 @@ fn merge_tree<'a>(tree: &Tree, repo: &'a Repository, base_tree: &Tree) -> Tree<'
         }
         0
     })
-        .unwrap();
+    .unwrap();
     let new_tree_oid = update.create_updated(repo, base_tree).unwrap();
     repo.find_tree(new_tree_oid).unwrap()
 }
@@ -55,7 +55,7 @@ pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: 
         "tom@tomforb.es",
         &Time::new(i.uploaded_on.timestamp(), 0),
     )
-        .unwrap();
+    .unwrap();
 
     let total = index.len();
 
@@ -91,14 +91,18 @@ pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: 
         &tree,
         &parent,
     )
-        .unwrap();
+    .unwrap();
     warn!(
         "[{} {}/{}] Committed {} entries",
         job_info, i.index, job_info.total, total
     );
 }
 
-pub fn package_name_to_path<'a>(name: &'a String, version: &'a str, package_filename: &'a str) -> (&'a str, &'a str, &'a str) {
+pub fn package_name_to_path<'a>(
+    name: &'a String,
+    version: &'a str,
+    package_filename: &'a str,
+) -> (&'a str, &'a str, &'a str) {
     // The package filename contains the package name and the version. We don't need this in the output, so just ignore it.
     // The format is `{name}-{version}-{rest}`, so we strip out `rest`
     // Some packages, like `free-valorant-points-redeem-code-v-3693.zip`, don't fit this convention.
@@ -166,10 +170,7 @@ pub fn run<'a>(
         // Some paths are weird. A release in backports.ssl_match_hostname contains
         // files with double slashes: `src/backports/ssl_match_hostname//backports.ssl_match_hostname-3.4.0.1.tar.gz.asc`
         // This might be an issue with my code somewhere, but everything else seems to be fine.
-        let path = format!(
-            "{}/{file_name}",
-            code_prefix
-        )
+        let path = format!("{}/{file_name}", code_prefix)
             .replace("/./", "/")
             .replace("/../", "/")
             .replace("//", "/");
