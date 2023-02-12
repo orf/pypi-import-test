@@ -24,7 +24,7 @@ lazy_static! {
 
         // Top file extensions include PKG-INFO, html and JS. We don't really want those.
         "\\.dist-info/",
-        "LICENSE$",
+        "LICENSE",
         "\\.js\\.LICENSE\\.txt$",
         "\\.pyc$",
         "\\.js$",
