@@ -154,12 +154,16 @@ pub fn run<'a>(
             &*file_name
         };
 
+        // Some paths are weird. A release in backports.ssl_match_hostname contains
+        // files with double slashes: `src/backports/ssl_match_hostname//backports.ssl_match_hostname-3.4.0.1.tar.gz.asc`
+        // This might be an issue with my code somewhere, but everything else seems to be fine.
         let path = format!(
             "code/{}/{}/{}/{file_name}",
             info.name, item.version, reduced_package_filename
         )
         .replace("/./", "/")
-        .replace("/../", "/");
+        .replace("/../", "/")
+        .replace("//", "/");
 
         let entry = IndexEntry {
             ctime: index_time,
