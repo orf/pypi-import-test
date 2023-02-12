@@ -1,5 +1,5 @@
-use std::io::{BufReader, Read};
 use anyhow::anyhow;
+use std::io::{BufReader, Read};
 
 use bzip2::read::BzDecoder;
 
@@ -104,13 +104,15 @@ fn find_tar_item(
     None
 }
 
-
-
 fn handle_tar_gz(
     mut z: &mut Entry<impl Read>,
     odb: &Odb,
 ) -> anyhow::Result<Option<(String, u64, Oid)>> {
-    let path = z.path()?.to_str().ok_or(anyhow!("Error converting path to string"))?.to_string();
+    let path = z
+        .path()?
+        .to_str()
+        .ok_or(anyhow!("Error converting path to string"))?
+        .to_string();
     let size = z.size();
     if skip_archive_entry(&path, size) {
         return Ok(None);

@@ -36,10 +36,12 @@ pub fn extract_urls(
     split: usize,
 ) {
     let find = find.map(|v| {
-        v.split(' ')
+        v.split('\n')
+            .flat_map(|l| l.split(' '))
             .filter(|v| !v.is_empty())
-            .map(|v| v.to_string())
-            .collect::<Vec<String>>()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.starts_with('#'))
+            .collect::<Vec<_>>()
     });
 
     let files_iter = WalkDir::new(dir)

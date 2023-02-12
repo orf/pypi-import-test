@@ -226,7 +226,7 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<Package
             flush_repo(&repo, repo_idx, &odb, mempack_backend);
         }
     })
-        .unwrap_or_else(|_| panic!("Error with job {}", job.info));
+    .unwrap_or_else(|_| panic!("Error with job {}", job.info));
 
     if should_copy_repo {
         Ok(PackageResult::Complete)
