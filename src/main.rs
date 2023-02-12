@@ -4,6 +4,7 @@ mod data;
 mod file_inspection;
 mod inspect;
 mod writer;
+mod pusher;
 
 use crossbeam::thread;
 use std::fs;
@@ -64,6 +65,10 @@ enum RunType {
         base_repo: PathBuf,
         #[arg()]
         target_repos: Vec<PathBuf>,
+    },
+    Push {
+        #[arg()]
+        base_repo: PathBuf,
     },
     CreateUrls {
         #[arg()]
@@ -148,7 +153,10 @@ fn main() -> anyhow::Result<()> {
             target_repos,
         } => {
             combine::combine(job_idx, base_repo, target_repos);
-        }
+        },
+        RunType::Push { base_repo} => {
+            pusher::push(base_repo);
+        },
         RunType::ReadIndex { repo: _ } => {
             // let x = inspect::parse_index(repo);
             // println!("Total: {}", x);

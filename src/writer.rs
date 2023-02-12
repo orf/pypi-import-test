@@ -41,7 +41,7 @@ fn merge_tree<'a>(tree: &Tree, repo: &'a Repository, base_tree: &Tree) -> Tree<'
         }
         0
     })
-    .unwrap();
+        .unwrap();
     let new_tree_oid = update.create_updated(repo, base_tree).unwrap();
     repo.find_tree(new_tree_oid).unwrap()
 }
@@ -55,7 +55,7 @@ pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: 
         "tom@tomforb.es",
         &Time::new(i.uploaded_on.timestamp(), 0),
     )
-    .unwrap();
+        .unwrap();
 
     let total = index.len();
 
@@ -86,15 +86,31 @@ pub fn commit(repo: &Repository, job_info: &JobInfo, i: PackageInfo, mut index: 
         Some("HEAD"),
         &signature,
         &signature,
+        // To-do: Make this JSON
         format!("{} {} ({})", job_info.name, i.version, filename).as_str(),
         &tree,
         &parent,
     )
-    .unwrap();
+        .unwrap();
     warn!(
         "[{} {}/{}] Committed {} entries",
         job_info, i.index, job_info.total, total
     );
+}
+
+pub fn package_name_to_path<'a>(name: &'a String, version: &'a str, package_filename: &'a str) -> (&'a str, &'a str, &'a str) {
+    // The package filename contains the package name and the version. We don't need this in the output, so just ignore it.
+    // The format is `{name}-{version}-{rest}`, so we strip out `rest`
+    // Some packages, like `free-valorant-points-redeem-code-v-3693.zip`, don't fit this convention.
+    // In this case just return the extension.
+    let name_version = format!("{}-{}", name, version);
+    // To-Do: Make this line work - we need to normalize underscores. Bruh.
+    // let reduced_filename = match package_filename.replace('_',  "-").starts_with(&name_version) {
+    let reduced_filename = match package_filename.starts_with(&name_version) {
+        true => &package_filename[(name_version.len() + 1)..],
+        false => package_filename.rsplit('.').next().unwrap(),
+    };
+    (name, version, reduced_filename)
 }
 
 pub fn run<'a>(
@@ -105,21 +121,14 @@ pub fn run<'a>(
 ) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Index)>> {
     warn!("[{} {}/{}] Starting", info, item.index, info.total);
     let package_filename = item.package_filename();
-
     let package_extension = package_filename.rsplit('.').next().unwrap();
-    // The package filename contains the package name and the version. We don't need this in the output, so just ignore it.
-    // The format is `{name}-{version}-{rest}`, so we strip out `rest`
-    // Some packages, like `free-valorant-points-redeem-code-v-3693.zip`, don't fit this convention.
-    // In this case just return the extension.
-    let name_version = format!("{}-{}", info.name, item.version);
-    let reduced_package_filename = match package_filename.starts_with(&name_version) {
-        true => &package_filename[(name_version.len() + 1)..],
-        false => package_filename.rsplit('.').next().unwrap(),
-    };
+
+    let code_prefix = package_name_to_path(&info.name, &item.version, package_filename);
+    let code_prefix = format!("code/{}/{}/{}", code_prefix.0, code_prefix.1, code_prefix.2);
 
     // .tar.gz files unwrap all contents to paths like `Django-1.10rc1/...`. This isn't great,
     // so we detect this and strip the prefix.
-    let tar_gz_first_segment = format!("{}/", name_version);
+    let tar_gz_first_segment = format!("{}-{}/", info.name, item.version);
 
     let download_response = client.get(item.url.clone()).send()?;
     let mut archive = match PackageArchive::new(package_extension, download_response) {
@@ -158,12 +167,12 @@ pub fn run<'a>(
         // files with double slashes: `src/backports/ssl_match_hostname//backports.ssl_match_hostname-3.4.0.1.tar.gz.asc`
         // This might be an issue with my code somewhere, but everything else seems to be fine.
         let path = format!(
-            "code/{}/{}/{}/{file_name}",
-            info.name, item.version, reduced_package_filename
+            "{}/{file_name}",
+            code_prefix
         )
-        .replace("/./", "/")
-        .replace("/../", "/")
-        .replace("//", "/");
+            .replace("/./", "/")
+            .replace("/../", "/")
+            .replace("//", "/");
 
         let entry = IndexEntry {
             ctime: index_time,
