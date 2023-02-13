@@ -6,6 +6,7 @@ cargo build --release
 export WORKSPACE="$1"
 export REPOS_DIRECTORY="$2"
 export CONCURRENCY="$3"
+export TEMPLATE_DIR="$4"
 
 export LIMIT="5000"
 
@@ -36,4 +37,4 @@ fd -a . "$URLS_DIR" | shuf > "$INDEX_FILE"
 
 echo "running partitions"
 export RUST_LOG=warn
-parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
+parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} $TEMPLATE_DIR 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
