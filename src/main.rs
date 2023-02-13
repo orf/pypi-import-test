@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use crate::data::{DownloadJob, JobInfo};
 use crate::writer::{commit, flush_repo};
-use crossbeam::channel::bounded;
+use crossbeam::channel::unbounded;
 use data::PackageInfo;
 use fs_extra::dir::CopyOptions;
 
@@ -209,7 +209,7 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<Package
         }
     };
 
-    let (sender, recv) = bounded::<_>(20);
+    let (sender, recv) = unbounded();
 
     let odb = repo.odb().unwrap();
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();

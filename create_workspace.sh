@@ -24,7 +24,6 @@ mkdir -p "$URLS_DIR"
 mkdir -p "$PARTITIONS_DIR"
 mkdir -p "$TEMP_DIR"
 
-
 echo "creating URLs"
 ./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
