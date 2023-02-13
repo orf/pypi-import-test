@@ -66,7 +66,7 @@ enum RunType {
         #[arg()]
         target_repos: Vec<PathBuf>,
     },
-    PushStrategy {
+    RepoStats {
         #[arg()]
         base_repos: Vec<PathBuf>,
     },
@@ -158,9 +158,10 @@ fn main() -> anyhow::Result<()> {
         } => {
             combine::combine(job_idx, base_repo, target_repos);
         }
-        RunType::PushStrategy { base_repos } => {
+        RunType::RepoStats { base_repos } => {
             base_repos.into_par_iter().for_each(|base_repo| {
-                pusher::compute_push_strategy(base_repo);
+                let output = pusher::get_repo_statistics(base_repo);
+                println!("{}", serde_json::to_string(&output).unwrap());
             });
         }
         RunType::Push { strategy } => {

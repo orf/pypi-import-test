@@ -167,9 +167,6 @@ pub fn run<'a>(
 
     let mut file_count: usize = 0;
 
-    // let entries = Vec::with_capacity(1024);
-    warn!("[{} {}/{}] Begin iterating", info, item.index, info.total);
-
     let mut index = Index::new().unwrap();
     let index_time = IndexTime::new(item.uploaded_on.timestamp() as i32, 0);
 
