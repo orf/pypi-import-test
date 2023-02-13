@@ -48,6 +48,9 @@ lazy_static! {
         "\\.dae$",
         "\\.scz$",
 
+        // Ignore egg_info stuff, except for "entry_points.txt"
+        "\\.egg-info/(setup_requires|dependency_links|depends|zip-safe|not-zip-safe|top_level|SOURCES|requires)",
+
         // _possibly_ skip checkpoints?
         // "/\\.ipynb_checkpoints/"
 
