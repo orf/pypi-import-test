@@ -158,7 +158,7 @@ pub fn run<'a>(
     item: PackageInfo,
     repo_odb: &Odb,
 ) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Index, String)>> {
-    warn!("[{} {}/{}] Starting", info, item.index, info.total);
+    // warn!("[{} {}/{}] Starting", info, item.index, info.total);
     let package_filename = item.package_filename();
     let package_extension = package_filename.rsplit('.').next().unwrap();
 
@@ -230,10 +230,10 @@ pub fn run<'a>(
         return Ok(None);
     }
 
-    warn!(
-        "[{} {}/{}] Finished iterating: {} files",
-        info, item.index, info.total, file_count
-    );
+    // warn!(
+    //     "[{} {}/{}] Finished iterating: {} files",
+    //     info, item.index, info.total, file_count
+    // );
 
     Ok(Some((info, item, index, code_prefix)))
 }
