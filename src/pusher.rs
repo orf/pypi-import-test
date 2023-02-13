@@ -1,11 +1,8 @@
-
-use git2::{Repository};
-
+use git2::Repository;
 
 use serde::{Deserialize, Serialize};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 // use std::str::FromStr;
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RepoStatistics {
@@ -17,7 +14,6 @@ pub struct RepoStatistics {
     // last_commit: String,
     // push_order: Vec<String>,
 }
-
 
 pub fn get_repo_statistics(repo: PathBuf) -> RepoStatistics {
     // let mut tag_name = repo.file_name().unwrap().to_str().unwrap().rsplit_once('.').unwrap().0.to_string();
@@ -40,14 +36,14 @@ pub fn get_repo_statistics(repo: PathBuf) -> RepoStatistics {
         }
         true
     })
-        .unwrap();
+    .unwrap();
 
     return RepoStatistics {
         unique_blobs,
         total_size,
         commits,
         path: repo.path().to_path_buf(),
-    }
+    };
 }
 
 pub fn push(_strategy_info: String) {

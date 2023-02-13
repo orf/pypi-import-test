@@ -15,11 +15,23 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 
 pub fn flush_repo(
+    info: &JobInfo,
     repo: &Repository,
     mut repo_idx: Index,
     object_db: &Odb,
     mempack_backend: Mempack,
 ) {
+    match repo.head() {
+        Ok(h) => {
+            let commit = h.peel_to_commit().unwrap();
+            repo.branch(&format!("{}-{}", info.name, info.chunk), &commit, true)
+                .unwrap();
+        }
+        Err(e) => {
+            panic!("Could not get repo head? {e}");
+        }
+    }
+
     info!("Queue consumed, writing packfile");
     let mut buf = Buf::new();
     mempack_backend.dump(repo, &mut buf).unwrap();

@@ -22,6 +22,7 @@ use crate::data::{DownloadJob, JobInfo};
 use crate::writer::{commit, flush_repo};
 use crossbeam::channel::bounded;
 use data::PackageInfo;
+use fs_extra::dir::CopyOptions;
 
 use reqwest::blocking::Client;
 use url::Url;
@@ -57,6 +58,9 @@ enum RunType {
 
         #[arg()]
         finished_path: PathBuf,
+
+        #[arg()]
+        template: PathBuf,
     },
     Combine {
         #[arg()]
@@ -124,8 +128,11 @@ fn main() -> anyhow::Result<()> {
             input_file,
             work_path,
             finished_path,
+            template,
         } => {
+            let opts = CopyOptions::new();
             fs::create_dir(&work_path).unwrap();
+            fs_extra::dir::copy(&template.join(".git/"), &work_path, &opts).unwrap();
             let work_path = fs::canonicalize(&work_path).unwrap();
 
             let reader = BufReader::new(File::open(input_file).unwrap());
@@ -244,7 +251,7 @@ fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<Package
             should_copy_repo = true;
         }
         if should_copy_repo {
-            flush_repo(&repo, repo_idx, &odb, mempack_backend);
+            flush_repo(&job.info, &repo, repo_idx, &odb, mempack_backend);
         }
     })
     .unwrap_or_else(|_| panic!("Error with job {}", job.info));
