@@ -1,4 +1,4 @@
-use crate::data::{JobInfo, PackageInfo};
+use crate::data::{DownloadJob, JobInfo, PackageInfo};
 
 use git2::{
     Buf, FileMode, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Repository, Signature,
@@ -13,6 +13,23 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 
 use std::io::Write;
+use std::path::PathBuf;
+use std::fs;
+use std::fs::File;
+use crossbeam::channel::unbounded;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use anyhow::Context;
+use crate::{downloader, file_inspection};
+
+
+static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"), );
+
+pub enum PackageResult {
+    Complete,
+    Empty,
+    Excluded,
+}
+
 
 pub fn flush_repo(
     info: &JobInfo,
@@ -56,7 +73,7 @@ fn merge_tree<'a>(tree: &Tree, repo: &'a Repository, base_tree: &Tree) -> Tree<'
         }
         0
     })
-    .unwrap();
+        .unwrap();
     let new_tree_oid = update.create_updated(repo, base_tree).unwrap();
     repo.find_tree(new_tree_oid).unwrap()
 }
@@ -72,8 +89,8 @@ pub struct CommitMessage<'a> {
 pub fn commit(
     repo: &Repository,
     job_info: &JobInfo,
-    i: PackageInfo,
-    mut index: Index,
+    i: &PackageInfo,
+    mut index: &mut Index,
     code_path: String,
 ) {
     let filename = i.package_filename();
@@ -84,7 +101,7 @@ pub fn commit(
         "tom@tomforb.es",
         &Time::new(i.uploaded_on.timestamp(), 0),
     )
-    .unwrap();
+        .unwrap();
 
     let total = index.len();
 
@@ -117,7 +134,7 @@ pub fn commit(
         file: filename,
         path: code_path,
     })
-    .unwrap();
+        .unwrap();
     repo.commit(
         Some("HEAD"),
         &signature,
@@ -126,7 +143,7 @@ pub fn commit(
         &tree,
         &parent,
     )
-    .unwrap();
+        .unwrap();
     warn!(
         "[{} {}/{}] Committed {} entries",
         job_info, i.index, job_info.total, total
@@ -153,11 +170,13 @@ pub fn package_name_to_path<'a>(
 }
 
 pub fn run<'a>(
-    client: &mut Client,
+    archive_path: PathBuf,
+    // client: &mut Client,
     info: &'a JobInfo,
-    item: PackageInfo,
+    item: &PackageInfo,
     repo_odb: &Odb,
-) -> anyhow::Result<Option<(&'a JobInfo, PackageInfo, Index, String)>> {
+    index: &mut Index,
+) -> anyhow::Result<Option<String>> {
     // warn!("[{} {}/{}] Starting", info, item.index, info.total);
     let package_filename = item.package_filename();
     let package_extension = package_filename.rsplit('.').next().unwrap();
@@ -169,8 +188,8 @@ pub fn run<'a>(
     // so we detect this and strip the prefix.
     let tar_gz_first_segment = format!("{}-{}/", info.name, item.version);
 
-    let download_response = client.get(item.url.clone()).send()?;
-    let mut archive = match PackageArchive::new(package_extension, download_response) {
+    // let download_response = client.get(item.url.clone()).send()?;
+    let mut archive = match PackageArchive::new(package_extension, File::open(archive_path).unwrap()) {
         None => {
             return Ok(None);
         }
@@ -179,7 +198,7 @@ pub fn run<'a>(
 
     let mut file_count: usize = 0;
 
-    let mut index = Index::new().unwrap();
+    // let mut index = Index::new().unwrap();
     let index_time = IndexTime::new(item.uploaded_on.timestamp() as i32, 0);
 
     for v in archive.all_items(repo_odb) {
@@ -229,11 +248,54 @@ pub fn run<'a>(
         warn!("[{} {}/{}] No files added", info, item.index, info.total);
         return Ok(None);
     }
+    Ok(Some(code_prefix))
+    // Ok(Some((info, item, code_prefix)))
+}
 
-    // warn!(
-    //     "[{} {}/{}] Finished iterating: {} files",
-    //     info, item.index, info.total, file_count
-    // );
+pub fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<PackageResult> {
+    if file_inspection::is_excluded_package(&job.info.name) {
+        return Ok(PackageResult::Excluded);
+    }
 
-    Ok(Some((info, item, index, code_prefix)))
+    git2::opts::strict_object_creation(false);
+    git2::opts::strict_hash_verification(false);
+
+    let repo = match Repository::open(repo_path) {
+        Ok(v) => v,
+        Err(_) => {
+            let _ = fs::create_dir(repo_path);
+            let repo = Repository::init(repo_path).unwrap();
+            let mut index = repo.index().unwrap();
+            index.set_version(4).unwrap();
+            repo
+        }
+    };
+
+    // let (sender, recv) = unbounded();
+
+    let odb = repo.odb().unwrap();
+    let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
+    let mut repo_idx = repo.index().unwrap();
+
+    let mut has_any_files = false;
+
+    let files = downloader::download_multiple(job.packages);
+
+    for (info, temp_dir, download_path) in files {
+        if let Some(code_path) = run(download_path, &job.info, &info, &odb, &mut repo_idx).unwrap_or_else(|_| panic!("Error with job {}", job.info)) {
+            has_any_files = true;
+            commit(&repo, &job.info, &info, &mut repo_idx, code_path)
+        }
+        drop(temp_dir) // delete
+    }
+
+    if has_any_files {
+        flush_repo(&job.info, &repo, repo_idx, &odb, mempack_backend);
+    }
+
+    if has_any_files {
+        Ok(PackageResult::Complete)
+    } else {
+        Ok(PackageResult::Empty)
+    }
 }

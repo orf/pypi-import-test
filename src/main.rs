@@ -5,6 +5,7 @@ mod file_inspection;
 mod inspect;
 mod pusher;
 mod writer;
+mod downloader;
 
 use crossbeam::thread;
 use std::fs;
@@ -26,6 +27,7 @@ use fs_extra::dir::CopyOptions;
 
 use reqwest::blocking::Client;
 use url::Url;
+use writer::PackageResult;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -107,7 +109,7 @@ fn main() -> anyhow::Result<()> {
             url,
             repo,
         } => {
-            run_multiple(
+            writer::run_multiple(
                 &repo,
                 DownloadJob {
                     info: JobInfo {
@@ -119,6 +121,7 @@ fn main() -> anyhow::Result<()> {
                         version,
                         url,
                         index: 0,
+                        sort_key: None,
                         uploaded_on: Default::default(),
                     }],
                 },
@@ -137,7 +140,7 @@ fn main() -> anyhow::Result<()> {
 
             let reader = BufReader::new(File::open(input_file).unwrap());
             let input: DownloadJob = serde_json::from_reader(reader).unwrap();
-            match run_multiple(&work_path, input)? {
+            match writer::run_multiple(&work_path, input)? {
                 PackageResult::Complete => {
                     if finished_path.exists() {
                         fs::remove_dir_all(&finished_path).unwrap();
@@ -180,85 +183,4 @@ fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
-
-enum PackageResult {
-    Complete,
-    Empty,
-    Excluded,
-}
-
-fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<PackageResult> {
-    if file_inspection::is_excluded_package(&job.info.name) {
-        return Ok(PackageResult::Excluded);
-    }
-
-    git2::opts::strict_object_creation(false);
-    git2::opts::strict_hash_verification(false);
-
-    let repo = match Repository::open(repo_path) {
-        Ok(v) => v,
-        Err(_) => {
-            let _ = fs::create_dir(repo_path);
-            let repo = Repository::init(repo_path).unwrap();
-            let mut index = repo.index().unwrap();
-            index.set_version(4).unwrap();
-            repo
-        }
-    };
-
-    let (sender, recv) = unbounded();
-
-    let odb = repo.odb().unwrap();
-    let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
-    let repo_idx = repo.index().unwrap();
-
-    let mut should_copy_repo = false;
-
-    thread::scope(|s| {
-        s.spawn(|_| {
-            let sender = sender;
-            job.packages.into_par_iter().for_each_init(
-                || {
-                    Client::builder()
-                        .http2_prior_knowledge()
-                        .http2_adaptive_window(true)
-                        .user_agent(APP_USER_AGENT)
-                        .build()
-                        .unwrap()
-                },
-                |client, item| {
-                    let error_ctx = format!(
-                        "Name: {}, version: {}, url: {}",
-                        job.info.name, item.version, item.url
-                    );
-                    let idx = writer::run(client, &job.info, item, &odb)
-                        .context(error_ctx)
-                        .unwrap();
-                    if let Some(idx) = idx {
-                        if sender.send(idx).is_err() {
-                            // Ignore errors sending
-                        }
-                    }
-                },
-            );
-        });
-
-        for (job_info, package_info, index, code_path) in recv {
-            commit(&repo, job_info, package_info, index, code_path);
-            should_copy_repo = true;
-        }
-        if should_copy_repo {
-            flush_repo(&job.info, &repo, repo_idx, &odb, mempack_backend);
-        }
-    })
-    .unwrap_or_else(|_| panic!("Error with job {}", job.info));
-
-    if should_copy_repo {
-        Ok(PackageResult::Complete)
-    } else {
-        Ok(PackageResult::Empty)
-    }
 }

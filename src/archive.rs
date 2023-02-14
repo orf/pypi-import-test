@@ -1,3 +1,4 @@
+use std::fs::File;
 use anyhow::anyhow;
 use std::io::{BufReader, Read};
 
@@ -11,25 +12,25 @@ use tar::{Archive, Entries, Entry};
 use zip::read::read_zipfile_from_stream;
 
 pub enum PackageArchive {
-    Zip(BufReader<Response>),
-    TarGz(Archive<GzDecoder<Response>>),
-    TarBz(Archive<BzDecoder<Response>>),
+    Zip(BufReader<File>),
+    TarGz(Archive<GzDecoder<File>>),
+    TarBz(Archive<BzDecoder<File>>),
 }
 
 impl PackageArchive {
-    pub fn new(extension: &str, reader: Response) -> Option<Self> {
+    pub fn new(extension: &str, file: File) -> Option<Self> {
         match extension {
             "egg" | "zip" | "whl" | "exe" => Some(PackageArchive::Zip(BufReader::with_capacity(
                 1024 * 1024 * 12,
-                reader,
+                file,
             ))),
             "gz" => {
-                let tar = GzDecoder::new(reader);
+                let tar = GzDecoder::new(file);
                 let archive = Archive::new(tar);
                 Some(PackageArchive::TarGz(archive))
             }
             "bz2" => {
-                let tar = BzDecoder::new(reader);
+                let tar = BzDecoder::new(file);
                 let archive = Archive::new(tar);
                 Some(PackageArchive::TarBz(archive))
             }
@@ -47,9 +48,9 @@ impl PackageArchive {
 }
 
 pub enum PackageEnumIterator<'a> {
-    Zip(&'a mut BufReader<Response>, &'a Odb<'a>),
-    TarGz(Entries<'a, GzDecoder<Response>>, &'a Odb<'a>),
-    TarBz(Entries<'a, BzDecoder<Response>>, &'a Odb<'a>),
+    Zip(&'a mut BufReader<File>, &'a Odb<'a>),
+    TarGz(Entries<'a, GzDecoder<File>>, &'a Odb<'a>),
+    TarBz(Entries<'a, BzDecoder<File>>, &'a Odb<'a>),
 }
 
 impl<'a> Iterator for PackageEnumIterator<'a> {
@@ -58,6 +59,7 @@ impl<'a> Iterator for PackageEnumIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             PackageEnumIterator::Zip(v, odb) => loop {
+                // To-do: this now doesn't need to read from a stream.
                 return match read_zipfile_from_stream(v) {
                     Ok(z) => match z {
                         None => None,
