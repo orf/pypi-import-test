@@ -33,6 +33,6 @@ pub fn download_multiple(packages: Vec<PackageInfo>) -> Vec<(PackageInfo, TempDi
         )
         .collect();
 
-    downloaded_packages.sort_by_key(|(v, _, _)| v.get_total_sort_key());
+    downloaded_packages.sort_by_cached_key(|(v, _, _)| v.get_total_sort_key());
     downloaded_packages
 }

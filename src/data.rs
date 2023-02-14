@@ -111,7 +111,7 @@ pub fn extract_urls(
                     index: 0,
                 })
             })
-            .sorted_by_key(|v| v.get_total_sort_key())
+            .sorted_by_cached_key(|v| v.get_total_sort_key())
             .chunks(split)
             .into_iter()
             .enumerate()
