@@ -91,14 +91,14 @@ pub fn extract_urls(
                     None => None,
                     Some(c) => {
                         let major =
-                            usize::from_str(<&str>::from(c.name("major").unwrap())).unwrap();
+                            usize::from_str(<&str>::from(c.name("major").unwrap())).unwrap_or_default();
                         let minor = c
                             .name("minor")
-                            .map(|v| usize::from_str(v.as_str()).unwrap())
+                            .map(|v| usize::from_str(v.as_str()).unwrap_or_default())
                             .unwrap_or(0);
                         let patch = c
                             .name("patch")
-                            .map(|v| usize::from_str(v.as_str()).unwrap())
+                            .map(|v| usize::from_str(v.as_str()).unwrap_or_default())
                             .unwrap_or(0);
                         Some((major, minor, patch))
                     }
