@@ -167,10 +167,10 @@ pub fn package_name_to_path<'a>(
     (name, version, reduced_filename)
 }
 
-pub fn run<'a>(
+pub fn run(
     archive_path: PathBuf,
     // client: &mut Client,
-    info: &'a JobInfo,
+    info: &JobInfo,
     item: &PackageInfo,
     repo_odb: &Odb,
     index: &mut Index,
