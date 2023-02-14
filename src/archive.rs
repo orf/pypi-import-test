@@ -1,5 +1,5 @@
-use std::fs::File;
 use anyhow::anyhow;
+use std::fs::File;
 use std::io::{BufReader, Read};
 
 use bzip2::read::BzDecoder;

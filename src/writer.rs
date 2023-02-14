@@ -12,24 +12,22 @@ use git2::build::TreeUpdateBuilder;
 
 use serde::{Deserialize, Serialize};
 
-use std::io::Write;
-use std::path::PathBuf;
 use std::fs;
 use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
 
-use rayon::iter::{ParallelIterator};
+use rayon::iter::ParallelIterator;
 
 use crate::{downloader, file_inspection};
 
-
-static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"), );
+static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 pub enum PackageResult {
     Complete,
     Empty,
     Excluded,
 }
-
 
 pub fn flush_repo(
     info: &JobInfo,
@@ -73,7 +71,7 @@ fn merge_tree<'a>(tree: &Tree, repo: &'a Repository, base_tree: &Tree) -> Tree<'
         }
         0
     })
-        .unwrap();
+    .unwrap();
     let new_tree_oid = update.create_updated(repo, base_tree).unwrap();
     repo.find_tree(new_tree_oid).unwrap()
 }
@@ -101,7 +99,7 @@ pub fn commit(
         "tom@tomforb.es",
         &Time::new(i.uploaded_on.timestamp(), 0),
     )
-        .unwrap();
+    .unwrap();
 
     let total = index.len();
 
@@ -134,7 +132,7 @@ pub fn commit(
         file: filename,
         path: code_path,
     })
-        .unwrap();
+    .unwrap();
     repo.commit(
         Some("HEAD"),
         &signature,
@@ -143,7 +141,7 @@ pub fn commit(
         &tree,
         &parent,
     )
-        .unwrap();
+    .unwrap();
     warn!(
         "[{} {}/{}] Committed {} entries",
         job_info, i.index, job_info.total, total
@@ -189,12 +187,13 @@ pub fn run<'a>(
     let tar_gz_first_segment = format!("{}-{}/", info.name, item.version);
 
     // let download_response = client.get(item.url.clone()).send()?;
-    let mut archive = match PackageArchive::new(package_extension, File::open(archive_path).unwrap()) {
-        None => {
-            return Ok(None);
-        }
-        Some(v) => v,
-    };
+    let mut archive =
+        match PackageArchive::new(package_extension, File::open(archive_path).unwrap()) {
+            None => {
+                return Ok(None);
+            }
+            Some(v) => v,
+        };
 
     let mut file_count: usize = 0;
 
@@ -282,7 +281,9 @@ pub fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<Pac
     let files = downloader::download_multiple(job.packages);
 
     for (info, temp_dir, download_path) in files {
-        if let Some(code_path) = run(download_path, &job.info, &info, &odb, &mut repo_idx).unwrap_or_else(|_| panic!("Error with job {}", job.info)) {
+        if let Some(code_path) = run(download_path, &job.info, &info, &odb, &mut repo_idx)
+            .unwrap_or_else(|_| panic!("Error with job {}", job.info))
+        {
             has_any_files = true;
             commit(&repo, &job.info, &info, &mut repo_idx, code_path)
         }

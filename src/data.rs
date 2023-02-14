@@ -1,9 +1,11 @@
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use jwalk::{rayon, WalkDir};
+use lazy_static::lazy_static;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rayon::prelude::*;
+use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -12,8 +14,6 @@ use std::io::{BufReader, BufWriter};
 use std::ops::Index;
 use std::path::PathBuf;
 use std::str::FromStr;
-use lazy_static::lazy_static;
-use regex::{Regex};
 
 #[derive(Debug, Deserialize)]
 struct Info {
@@ -33,7 +33,8 @@ struct PackageVersion {
 }
 
 lazy_static! {
-    static ref BASIC_VERSION_REGEX: Regex = Regex::new("(?P<major>[0-9]+)(\\.(?P<minor>[0-9]+)?)(\\.(?P<patch>[0-9]+))?").unwrap();
+    static ref BASIC_VERSION_REGEX: Regex =
+        Regex::new("(?P<major>[0-9]+)(\\.(?P<minor>[0-9]+)?)(\\.(?P<patch>[0-9]+))?").unwrap();
 }
 
 pub fn extract_urls(
@@ -87,24 +88,27 @@ pub fn extract_urls(
             .filter(|(_, v)| !v.urls.is_empty())
             .flat_map(|(_, v)| {
                 let sort_key = match BASIC_VERSION_REGEX.captures(&v.info.version) {
-                    None => {
-                        None
-                    }
+                    None => None,
                     Some(c) => {
-                        let major = usize::from_str(<&str>::from(c.name("major").unwrap())).unwrap();
-                        let minor = c.name("minor").map(|v| usize::from_str(v.as_str()).unwrap()).unwrap_or(0);
-                        let patch = c.name("patch").map(|v| usize::from_str(v.as_str()).unwrap()).unwrap_or(0);
+                        let major =
+                            usize::from_str(<&str>::from(c.name("major").unwrap())).unwrap();
+                        let minor = c
+                            .name("minor")
+                            .map(|v| usize::from_str(v.as_str()).unwrap())
+                            .unwrap_or(0);
+                        let patch = c
+                            .name("patch")
+                            .map(|v| usize::from_str(v.as_str()).unwrap())
+                            .unwrap_or(0);
                         Some((major, minor, patch))
                     }
                 };
-                v.urls.into_iter().map(move |v2| {
-                    PackageInfo {
-                        version: v.info.version.clone(),
-                        url: v2.url.parse().unwrap(),
-                        uploaded_on: v2.upload_time_iso_8601,
-                        sort_key,
-                        index: 0,
-                    }
+                v.urls.into_iter().map(move |v2| PackageInfo {
+                    version: v.info.version.clone(),
+                    url: v2.url.parse().unwrap(),
+                    uploaded_on: v2.upload_time_iso_8601,
+                    sort_key,
+                    index: 0,
                 })
             })
             .sorted_by_key(|v| v.get_total_sort_key())

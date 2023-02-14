@@ -2,10 +2,8 @@ use anyhow::Result;
 use content_inspector::{inspect, ContentType};
 use git2::{ObjectType, Odb, OdbLookupFlags, Oid};
 
-
 use std::io;
 use std::io::{Read, Write};
-
 
 const KB: u64 = 1024;
 const MB: u64 = 1024 * KB;
@@ -115,7 +113,7 @@ pub fn write_archive_entry_to_odb<R: Read>(
     let object_hash = Oid::hash_object(ObjectType::Blob, &vec).unwrap();
     // Does the object exist already? Not thread safe, obviously.
     if odb.exists_ext(object_hash, OdbLookupFlags::NO_REFRESH) {
-        return Ok(None)
+        return Ok(None);
     }
     Ok(Some(odb.write(ObjectType::Blob, &vec)?))
 }
@@ -132,7 +130,7 @@ pub fn skip_archive_entry(name: &str, size: u64) -> bool {
     // }
 
     if !name.ends_with(".py") {
-        return true
+        return true;
     }
 
     // if INCLUDE_REGEX.is_match(name.as_bytes()) {

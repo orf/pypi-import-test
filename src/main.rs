@@ -1,17 +1,15 @@
 mod archive;
 mod combine;
 mod data;
+mod downloader;
 mod file_inspection;
 mod inspect;
 mod pusher;
 mod writer;
-mod downloader;
-
 
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
-
 
 use clap::Parser;
 
@@ -21,10 +19,8 @@ use std::path::PathBuf;
 
 use crate::data::{DownloadJob, JobInfo};
 
-
 use data::PackageInfo;
 use fs_extra::dir::CopyOptions;
-
 
 use url::Url;
 use writer::PackageResult;
