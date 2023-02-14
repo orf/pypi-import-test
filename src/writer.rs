@@ -9,16 +9,16 @@ use log::{error, info, warn};
 use crate::archive::PackageArchive;
 
 use git2::build::TreeUpdateBuilder;
-use reqwest::blocking::Client;
+
 use serde::{Deserialize, Serialize};
 
 use std::io::Write;
 use std::path::PathBuf;
 use std::fs;
 use std::fs::File;
-use crossbeam::channel::unbounded;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use anyhow::Context;
+
+use rayon::iter::{ParallelIterator};
+
 use crate::{downloader, file_inspection};
 
 
@@ -90,7 +90,7 @@ pub fn commit(
     repo: &Repository,
     job_info: &JobInfo,
     i: &PackageInfo,
-    mut index: &mut Index,
+    index: &mut Index,
     code_path: String,
 ) {
     let filename = i.package_filename();

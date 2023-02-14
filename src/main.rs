@@ -7,25 +7,25 @@ mod pusher;
 mod writer;
 mod downloader;
 
-use crossbeam::thread;
+
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
 
-use anyhow::Context;
+
 use clap::Parser;
-use git2::Repository;
+
 use rayon::prelude::*;
 
 use std::path::PathBuf;
 
 use crate::data::{DownloadJob, JobInfo};
-use crate::writer::{commit, flush_repo};
-use crossbeam::channel::unbounded;
+
+
 use data::PackageInfo;
 use fs_extra::dir::CopyOptions;
 
-use reqwest::blocking::Client;
+
 use url::Url;
 use writer::PackageResult;
 
@@ -135,7 +135,7 @@ fn main() -> anyhow::Result<()> {
         } => {
             let opts = CopyOptions::new();
             fs::create_dir(&work_path).unwrap();
-            fs_extra::dir::copy(&template.join(".git/"), &work_path, &opts).unwrap();
+            fs_extra::dir::copy(template.join(".git/"), &work_path, &opts).unwrap();
             let work_path = fs::canonicalize(&work_path).unwrap();
 
             let reader = BufReader::new(File::open(input_file).unwrap());

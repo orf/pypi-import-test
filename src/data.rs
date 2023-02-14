@@ -13,7 +13,7 @@ use std::ops::Index;
 use std::path::PathBuf;
 use std::str::FromStr;
 use lazy_static::lazy_static;
-use regex::{Captures, Regex};
+use regex::{Regex};
 
 #[derive(Debug, Deserialize)]
 struct Info {
@@ -86,7 +86,7 @@ pub fn extract_urls(
             .into_iter()
             .filter(|(_, v)| !v.urls.is_empty())
             .flat_map(|(_, v)| {
-                let sort_key = match BASIC_VERSION_REGEX.captures(&*v.info.version) {
+                let sort_key = match BASIC_VERSION_REGEX.captures(&v.info.version) {
                     None => {
                         None
                     }
@@ -102,7 +102,7 @@ pub fn extract_urls(
                         version: v.info.version.clone(),
                         url: v2.url.parse().unwrap(),
                         uploaded_on: v2.upload_time_iso_8601,
-                        sort_key: sort_key.clone(),
+                        sort_key,
                         index: 0,
                     }
                 })

@@ -7,7 +7,7 @@ use bzip2::read::BzDecoder;
 use crate::file_inspection::{skip_archive_entry, write_archive_entry_to_odb};
 use flate2::read::GzDecoder;
 use git2::{Odb, Oid};
-use reqwest::blocking::Response;
+
 use tar::{Archive, Entries, Entry};
 use zip::read::read_zipfile_from_stream;
 

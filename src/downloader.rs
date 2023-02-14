@@ -19,7 +19,7 @@ pub fn download_multiple(packages: Vec<PackageInfo>) -> Vec<(PackageInfo, TempDi
     }, |client, info| {
         let download_dir = TempDir::new("download").unwrap();
         let download_response = client.get(info.url.clone()).send().unwrap();
-        let mut download_response = download_response.error_for_status().unwrap();
+        let download_response = download_response.error_for_status().unwrap();
         let save_path = download_dir.path().join("download");
         let mut writer = io::BufWriter::new(File::create(&save_path).unwrap());
         let mut reader = io::BufReader::new(download_response);

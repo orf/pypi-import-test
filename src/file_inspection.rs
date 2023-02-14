@@ -1,11 +1,11 @@
 use anyhow::Result;
 use content_inspector::{inspect, ContentType};
 use git2::{ObjectType, Odb, OdbLookupFlags, Oid};
-use lazy_static::lazy_static;
-use regex::RegexSet;
+
+
 use std::io;
 use std::io::{Read, Write};
-use regex::bytes::Regex;
+
 
 const KB: u64 = 1024;
 const MB: u64 = 1024 * KB;
