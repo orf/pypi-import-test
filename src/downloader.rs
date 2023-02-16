@@ -1,4 +1,4 @@
-use crate::data::PackageInfo;
+use crate::extract_urls::PackageInfo;
 use rayon::prelude::*;
 use reqwest::blocking::Client;
 use std::fs::File;

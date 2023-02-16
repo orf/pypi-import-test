@@ -1,4 +1,4 @@
-use crate::data::{DownloadJob, JobInfo, PackageInfo};
+use crate::extract_urls::{DownloadJob, JobInfo, PackageInfo};
 
 use git2::{
     Buf, FileMode, Index, IndexEntry, IndexTime, Mempack, ObjectType, Odb, Repository, Signature,
@@ -17,11 +17,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use rayon::iter::ParallelIterator;
-
 use crate::{downloader, file_inspection};
-
-static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 pub enum PackageResult {
     Complete,
@@ -101,22 +97,26 @@ pub fn commit(
     )
     .unwrap();
 
-    let total = index.len();
-
     let oid = index.write_tree_to(repo).unwrap_or_else(|e| {
         panic!(
             "Error writing {} {}/{} {} {} (idx len {}): {}",
-            job_info, i.index, job_info.total, i.version, i.url, total, e,
+            job_info,
+            i.index,
+            job_info.total,
+            i.version,
+            i.url,
+            index.len(),
+            e,
         )
     });
 
-    let mut tree = repo.find_tree(oid).unwrap();
+    let tree = repo.find_tree(oid).unwrap();
 
     let parent = match &repo.head() {
         Ok(v) => {
             let commit = v.peel_to_commit().unwrap();
-            let commit_tree = commit.tree().unwrap();
-            tree = merge_tree(&tree, repo, &commit_tree);
+            // let commit_tree = commit.tree().unwrap();
+            // tree = merge_tree(&tree, repo, &commit_tree);
             Some(commit)
         }
         Err(_) => None,
@@ -144,7 +144,10 @@ pub fn commit(
     .unwrap();
     warn!(
         "[{} {}/{}] Committed {} entries",
-        job_info, i.index, job_info.total, total
+        job_info,
+        i.index,
+        job_info.total,
+        index.len()
     );
 }
 
@@ -175,18 +178,14 @@ pub fn run(
     repo_odb: &Odb,
     index: &mut Index,
 ) -> anyhow::Result<Option<String>> {
-    // warn!("[{} {}/{}] Starting", info, item.index, info.total);
     let package_filename = item.package_filename();
     let package_extension = package_filename.rsplit('.').next().unwrap();
 
     let code_prefix = package_name_to_path(&info.name, &item.version, package_filename);
     let code_prefix = format!("code/{}/{}/{}", code_prefix.0, code_prefix.1, code_prefix.2);
 
-    // .tar.gz files unwrap all contents to paths like `Django-1.10rc1/...`. This isn't great,
-    // so we detect this and strip the prefix.
     let tar_gz_first_segment = format!("{}-{}/", info.name, item.version);
 
-    // let download_response = client.get(item.url.clone()).send()?;
     let mut archive =
         match PackageArchive::new(package_extension, File::open(archive_path).unwrap()) {
             None => {
@@ -248,7 +247,6 @@ pub fn run(
         return Ok(None);
     }
     Ok(Some(code_prefix))
-    // Ok(Some((info, item, code_prefix)))
 }
 
 pub fn run_multiple(repo_path: &PathBuf, job: DownloadJob) -> anyhow::Result<PackageResult> {

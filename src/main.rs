@@ -1,7 +1,6 @@
 mod archive;
-mod combine;
-mod data;
 mod downloader;
+mod extract_urls;
 mod file_inspection;
 mod inspect;
 mod pusher;
@@ -17,9 +16,9 @@ use rayon::prelude::*;
 
 use std::path::PathBuf;
 
-use crate::data::{DownloadJob, JobInfo};
+use crate::extract_urls::{DownloadJob, JobInfo};
 
-use data::PackageInfo;
+use extract_urls::PackageInfo;
 use fs_extra::dir::CopyOptions;
 
 use url::Url;
@@ -59,14 +58,6 @@ enum RunType {
 
         #[arg()]
         template: PathBuf,
-    },
-    Combine {
-        #[arg()]
-        job_idx: usize,
-        #[arg()]
-        base_repo: PathBuf,
-        #[arg()]
-        target_repos: Vec<PathBuf>,
     },
     RepoStats {
         #[arg()]
@@ -156,14 +147,7 @@ fn main() -> anyhow::Result<()> {
             limit,
             find,
             split,
-        } => data::extract_urls(data, output_dir, limit, find, split),
-        RunType::Combine {
-            job_idx,
-            base_repo,
-            target_repos,
-        } => {
-            combine::combine(job_idx, base_repo, target_repos);
-        }
+        } => extract_urls::extract_urls(data, output_dir, limit, find, split),
         RunType::RepoStats { base_repos } => {
             base_repos.into_par_iter().for_each(|base_repo| {
                 let output = pusher::get_repo_statistics(base_repo);

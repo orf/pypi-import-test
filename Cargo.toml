@@ -10,7 +10,7 @@ anyhow = "1.0.68"
 clap = { version = "4.0.32", features = ["derive"] }
 content_inspector = "0.2.4"
 tar = "0.4.38"
-zip = { version = "0.6.3", features = ["deflate-zlib"] }
+zip = { version = "0.6.3", features = ["deflate-zlib", "zstd", "deflate"], default-features = false }
 flate2 = { version = "1.0.17", features = ["zlib-ng-compat"], default-features = false }
 #git2 = { version = "0.16.1", features = ["zlib-ng-compat"], default-features = false }
 git2 = { git = "https://github.com/orf/git2-rs.git", branch="git-remote", features = ["zlib-ng-compat", "ssh"], default-features = false }

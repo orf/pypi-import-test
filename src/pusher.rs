@@ -31,7 +31,7 @@ pub fn get_repo_statistics(repo: PathBuf) -> RepoStatistics {
         if let Ok(blob) = repo.find_blob(*v) {
             unique_blobs += 1;
             total_size += blob.size();
-        } else if let Ok(_) = repo.find_commit(*v) {
+        } else if repo.find_commit(*v).is_ok() {
             commits += 1;
         }
         true

@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
-use std::ops::Index;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -90,8 +89,8 @@ pub fn extract_urls(
                 let sort_key = match BASIC_VERSION_REGEX.captures(&v.info.version) {
                     None => None,
                     Some(c) => {
-                        let major =
-                            usize::from_str(<&str>::from(c.name("major").unwrap())).unwrap_or_default();
+                        let major = usize::from_str(<&str>::from(c.name("major").unwrap()))
+                            .unwrap_or_default();
                         let minor = c
                             .name("minor")
                             .map(|v| usize::from_str(v.as_str()).unwrap_or_default())
