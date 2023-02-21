@@ -73,11 +73,11 @@ pub fn write_archive_entry_to_odb<R: Read>(
         return Ok(None);
     }
 
-    let object_hash = Oid::hash_object(ObjectType::Blob, &vec).unwrap();
+    // let object_hash = Oid::hash_object(ObjectType::Blob, &vec).unwrap();
     // Does the object exist already? Not thread safe, obviously.
-    if odb.exists_ext(object_hash, OdbLookupFlags::NO_REFRESH) {
-        return Ok(None);
-    }
+    // if odb.exists_ext(object_hash, OdbLookupFlags::NO_REFRESH) {
+    //     return Ok(None);
+    // }
     Ok(Some(odb.write(ObjectType::Blob, &vec)?))
 }
 
