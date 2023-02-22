@@ -160,10 +160,12 @@ pub fn package_name_to_path<'a>(
     // The format is `{name}-{version}-{rest}`, so we strip out `rest`
     // Some packages, like `free-valorant-points-redeem-code-v-3693.zip`, don't fit this convention.
     // In this case just return the extension.
-    let name_version = format!("{}-{}", name, version);
-    // To-Do: Make this line work - we need to normalize underscores. Bruh.
-    // let reduced_filename = match package_filename.replace('_',  "-").starts_with(&name_version) {
-    let reduced_filename = match package_filename.starts_with(&name_version) {
+    // We also need to normalize the underscores in the name.
+    let name_version = format!("{}_{}", name, version).replace('-', "_");
+    let reduced_filename = match package_filename
+        .replace('-', "_")
+        .starts_with(&name_version)
+    {
         true => &package_filename[(name_version.len() + 1)..],
         false => package_filename.rsplit('.').next().unwrap(),
     };
