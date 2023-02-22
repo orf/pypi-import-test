@@ -13,5 +13,6 @@ git init -q "$REPO"
 
 cat "$PARTITION" | parallel -P300 -I@ "cp -f @/.git/objects/pack/* $REPO/.git/objects/pack/ && git -C @ show-ref --heads" | rg -v "heads/main$" > "$REPO"/.git/packed-refs
 echo "Copied, repacking"
+git -C "$REPO" repack --max-pack-size=1500m --window=500 -k -a -d -f --threads=8
+export RUST_LOG=warn
 ./target/release/pypi-import-test merge-branches "$REPO" "merge_$PARTITION"
-git -C "$REPO" repack --max-pack-size=1500m -k -a -d -f --threads=8

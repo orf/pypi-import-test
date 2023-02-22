@@ -1,3 +1,5 @@
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use git2::build::TreeUpdateBuilder;
 use git2::{FileMode, ObjectType, Repository, Signature, Time, TreeWalkMode};
 
@@ -30,6 +32,9 @@ pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Re
     // let base_tree = repo.find_tree(builder.write().unwrap()).unwrap();
     let mut update = TreeUpdateBuilder::new();
 
+    // I messed up and there are duplicates. This works around that.
+    let mut workaround: HashMap<String, u16> = HashMap::new();
+
     for commit in &all_commits {
         // Combine all trees into a single treebuilder.
         commit
@@ -38,8 +43,18 @@ pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Re
             .walk(TreeWalkMode::PreOrder, |x, y| {
                 // code/adb3/1.1.0/tar.gz/ -> 4 splits.
                 if let (4, Some(ObjectType::Tree)) = (x.split('/').count(), y.kind()) {
+                    let mut name = format!("{}{}", x, y.name().unwrap());
+                    match workaround.entry(name.clone()) {
+                        Entry::Occupied(mut v) => {
+                            v.insert(v.get() + 1);
+                            name = format!("{}{}{}", x, v.get(), y.name().unwrap());
+                        }
+                        Entry::Vacant(v) => {
+                            v.insert(0);
+                        }
+                    }
                     update.upsert(
-                        format!("{}{}", x, y.name().unwrap()),
+                        name,
                         y.id(),
                         FileMode::Tree,
                     );
@@ -60,7 +75,7 @@ pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Re
         "tom@tomforb.es",
         &Time::new(time_now.timestamp(), 0),
     )
-    .unwrap();
+        .unwrap();
 
     // let mut parent_commits = vec![&head_commit];
     // let all_commits =
@@ -79,16 +94,20 @@ pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Re
         .unwrap();
     let commit = repo.find_commit(commit).unwrap();
 
+    warn!("Committed, setting branch");
+
     let mut repo_idx = repo.index().unwrap();
     let _head_ref = repo.branch(&branch_name, &commit, true).unwrap();
+
+    warn!("Deleting branches");
 
     for mut branch in all_branches {
         branch.delete().unwrap();
     }
 
-    repo_idx.write().unwrap();
-
     warn!("Writing index");
+
+    repo_idx.write().unwrap();
 
     Ok(())
 }
