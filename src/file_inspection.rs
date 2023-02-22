@@ -1,6 +1,6 @@
 use anyhow::Result;
 use content_inspector::{inspect, ContentType};
-use git2::{ObjectType, Odb, OdbLookupFlags, Oid};
+use git2::{ObjectType, Odb, Oid};
 
 use std::io;
 use std::io::{BufRead, Read};

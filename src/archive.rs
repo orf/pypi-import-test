@@ -1,4 +1,4 @@
-use anyhow::{anyhow};
+use anyhow::anyhow;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::ops::Range;
@@ -9,9 +9,7 @@ use crate::file_inspection::{skip_archive_entry, write_archive_entry_to_odb};
 use flate2::read::GzDecoder;
 use git2::{Odb, Oid};
 
-
 use tar::{Archive, Entries};
-
 
 use zip::ZipArchive;
 
@@ -102,18 +100,15 @@ fn find_tar_item(
     items: &mut Entries<impl Read>,
     odb: &Odb,
 ) -> Option<anyhow::Result<(String, u64, Oid)>> {
-    let iterator = items
-        .into_iter()
-        .flatten()
-        .flat_map(|v| {
-            let path = v
-                .path()?
-                .to_str()
-                .ok_or(anyhow!("Error converting path to string"))?
-                .to_string();
-            let size = v.size();
-            Ok::<_, anyhow::Error>((path, size, v))
-        });
+    let iterator = items.into_iter().flatten().flat_map(|v| {
+        let path = v
+            .path()?
+            .to_str()
+            .ok_or(anyhow!("Error converting path to string"))?
+            .to_string();
+        let size = v.size();
+        Ok::<_, anyhow::Error>((path, size, v))
+    });
     find_item(iterator, odb)
 }
 

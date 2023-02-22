@@ -1,118 +1,94 @@
-// use chrono::Utc;
-// use git2::build::TreeUpdateBuilder;
-// use git2::{
-//     FileMode, ObjectType, Repository, RepositoryInitOptions, Signature, Time, TreeWalkMode,
-// };
-// use log::warn;
-// use rayon::prelude::*;
-// use std::fs;
-// use std::path::PathBuf;
-//
-// pub fn combine(job_idx: usize, base_repo: PathBuf, target_repos: Vec<PathBuf>) {
-//     let opts = RepositoryInitOptions::new();
-//     let repo = Repository::init_opts(base_repo, &opts).unwrap();
-//     let mut repo_idx = repo.index().unwrap();
-//     repo_idx.set_version(4).unwrap();
-//
-//     let time_now = Utc::now();
-//     let signature = Signature::new(
-//         "Tom Forbes",
-//         "tom@tomforb.es",
-//         &Time::new(time_now.timestamp(), 0),
-//     )
-//     .unwrap();
-//
-//     warn!("[{}] Adding remotes...", job_idx);
-//     let mut remotes: Vec<_> = target_repos
-//         .iter()
-//         .enumerate()
-//         .map(|(idx, target)| {
-//             let target = fs::canonicalize(target).unwrap();
-//             let remote_name = format!("import_{idx}");
-//             let _ = repo.remote_delete(&remote_name);
-//             let remote = repo
-//                 .remote(
-//                     &remote_name,
-//                     format!("file://{}", target.to_str().unwrap()).as_str(),
-//                 )
-//                 .unwrap();
-//             (remote_name, remote)
-//         })
-//         .collect();
-//
-//     warn!("[{}] Fetching remotes...", job_idx);
-//     let remotes: Vec<_> = remotes
-//         .par_iter_mut()
-//         .map(|(remote_name, remote)| {
-//             remote
-//                 .fetch(
-//                     &[format!(
-//                         "refs/heads/master:refs/remotes/{remote_name}/master"
-//                     )],
-//                     None,
-//                     None,
-//                 )
-//                 .unwrap(); // To-do: handle errors
-//                            // warn!("[{}] Fetched remote", job_idx);
-//             remote_name
-//         })
-//         .collect();
-//
-//     let commits: Vec<_> = remotes
-//         .into_iter()
-//         .flat_map(|name| {
-//             match repo.find_reference(format!("refs/remotes/{name}/master").as_str()) {
-//                 Ok(r) => Some(r.peel_to_commit().unwrap()),
-//                 Err(_) => None,
-//             }
-//         })
-//         .collect();
-//
-//     let total = commits.len();
-//     warn!("[{}] Merging {} remotes", job_idx, total);
-//
-//     let builder = repo.treebuilder(None).unwrap();
-//     let base_tree = repo.find_tree(builder.write().unwrap()).unwrap();
-//     let mut update = TreeUpdateBuilder::new();
-//
-//     for commit in &commits {
-//         // Combine all trees into a single treebuilder.
-//         commit
-//             .tree()
-//             .unwrap()
-//             .walk(TreeWalkMode::PreOrder, |x, y| {
-//                 // code/adb3/1.1.0/tar.gz/ -> 4 splits.
-//                 if let (4, Some(ObjectType::Tree)) = (x.split('/').count(), y.kind()) {
-//                     update.upsert(
-//                         format!("{}{}", x, y.name().unwrap()),
-//                         y.id(),
-//                         FileMode::Tree,
-//                     );
-//                     return 1;
-//                 }
-//                 0
-//             })
-//             .unwrap();
-//     }
-//
-//     warn!("[{}] Creating tree", job_idx);
-//     let base_tree = update.create_updated(&repo, &base_tree).unwrap();
-//     let base_tree = repo.find_tree(base_tree).unwrap();
-//
-//     warn!("[{}] Finished merging trees, committing", job_idx);
-//     let parent_commits: Vec<_> = commits.iter().collect();
-//
-//     repo.commit(
-//         Some("HEAD"),
-//         &signature,
-//         &signature,
-//         "Merging partitions",
-//         &base_tree,
-//         &parent_commits,
-//     )
-//     .unwrap();
-//
-//     warn!("[{}] Writing index", job_idx);
-//     repo_idx.write().unwrap();
-//     warn!("[{}] Finished", job_idx);
-// }
+use git2::build::TreeUpdateBuilder;
+use git2::{FileMode, ObjectType, Repository, Signature, Time, TreeWalkMode};
+
+use chrono::Utc;
+use log::warn;
+use std::path::PathBuf;
+
+pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Result<()> {
+    let repo = Repository::open(repo_path)?;
+
+    let all_branches: Vec<_> = repo
+        .branches(None)?
+        .flatten()
+        .filter_map(|(b, _)| match b.name().unwrap().unwrap() {
+            "master" | "main" | "origin/HEAD" => None,
+            _ => Some(b),
+        })
+        .collect();
+
+    let all_commits: Vec<_> = all_branches
+        .iter()
+        .map(|b| b.get().peel_to_commit().unwrap())
+        .collect();
+
+    warn!("Merging {} commits", all_branches.len());
+
+    let head_tree = repo.head().unwrap().peel_to_tree().unwrap();
+    let head_commit = repo.head().unwrap().peel_to_commit().unwrap();
+    let _builder = repo.treebuilder(Some(&head_tree)).unwrap();
+    // let base_tree = repo.find_tree(builder.write().unwrap()).unwrap();
+    let mut update = TreeUpdateBuilder::new();
+
+    for commit in &all_commits {
+        // Combine all trees into a single treebuilder.
+        commit
+            .tree()
+            .unwrap()
+            .walk(TreeWalkMode::PreOrder, |x, y| {
+                // code/adb3/1.1.0/tar.gz/ -> 4 splits.
+                if let (4, Some(ObjectType::Tree)) = (x.split('/').count(), y.kind()) {
+                    update.upsert(
+                        format!("{}{}", x, y.name().unwrap()),
+                        y.id(),
+                        FileMode::Tree,
+                    );
+                    return 1;
+                }
+                0
+            })
+            .unwrap();
+    }
+    warn!("Creating tree");
+    let base_tree = update.create_updated(&repo, &head_tree).unwrap();
+    let base_tree = repo.find_tree(base_tree).unwrap();
+    warn!("Created tree {}", base_tree.id());
+
+    let time_now = Utc::now();
+    let signature = Signature::new(
+        "Tom Forbes",
+        "tom@tomforb.es",
+        &Time::new(time_now.timestamp(), 0),
+    )
+    .unwrap();
+
+    // let mut parent_commits = vec![&head_commit];
+    // let all_commits =
+    let mut parent_commits: Vec<_> = all_commits.iter().collect();
+    parent_commits.insert(0, &head_commit);
+
+    let commit = repo
+        .commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "Merging partitions",
+            &base_tree,
+            &parent_commits,
+        )
+        .unwrap();
+    let commit = repo.find_commit(commit).unwrap();
+
+    let mut repo_idx = repo.index().unwrap();
+    let _head_ref = repo.branch(&branch_name, &commit, true).unwrap();
+
+    for mut branch in all_branches {
+        branch.delete().unwrap();
+    }
+
+    repo_idx.write().unwrap();
+
+    warn!("Writing index");
+
+    Ok(())
+}

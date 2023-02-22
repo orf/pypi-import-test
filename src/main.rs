@@ -1,4 +1,5 @@
 mod archive;
+mod combine;
 mod downloader;
 mod extract_urls;
 mod file_inspection;
@@ -78,6 +79,12 @@ enum RunType {
         find: Option<String>,
         #[arg(long, short, default_value = "500")]
         split: usize,
+    },
+    MergeBranches {
+        #[arg()]
+        repo: PathBuf,
+        #[arg()]
+        branch_name: String,
     },
     ReadIndex {
         #[arg()]
@@ -160,6 +167,9 @@ fn main() -> anyhow::Result<()> {
         RunType::ReadIndex { repo: _ } => {
             // let x = inspect::parse_index(repo);
             // println!("Total: {}", x);
+        }
+        RunType::MergeBranches { repo, branch_name } => {
+            combine::merge_all_branches(repo, branch_name).unwrap();
         }
     }
     Ok(())

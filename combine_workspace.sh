@@ -3,20 +3,19 @@
 export RUSTFLAGS="-Ctarget-cpu=native"
 cargo build --release
 
-export WORKSPACE="$1"
-export INPUT_GIT_DIR="$2"
-export CONCURRENCY="$3"
-export PACKAGES_PER_PARTITION="10"
+export COMBINED_DIR="$1"
+export WORKSPACE="$2"
+export BASE_REPO="$3"
+export INDEX_FILE="$COMBINED_DIR"/index
+export REPOS_PER_SPLIT=20000
 
-export COMBINED_DIR="$WORKSPACE"/combined
-export INDEX_FILE="$WORKSPACE"/index
-
-rm -rf "$WORKSPACE"
-mkdir -p "$WORKSPACE"
-mkdir -p "$COMBINED_DIR"
+mkdir "$COMBINED_DIR"
+mkdir "$COMBINED_DIR/splits/"
+mkdir "$COMBINED_DIR/repos/"
 
 echo "Creating step index"
-fd -a . "$INPUT_GIT_DIR" | shuf > "$INDEX_FILE"
+fd -a . "$WORKSPACE/partitions" --maxdepth=1 -t=d | rg -v '(/mastapy_0|/delphixpy_0|/pulumi-azure-native_0|/ansible_0|/dbpedia-ent_0|/intersight_0|/itk-filtering_0|/easyvisualize_0|/lusid-sdk-preview_7|/msgraph-beta-sdk_0|/ixnetwork-restpy_0)\.json$' | shuf > "$INDEX_FILE"
 
-export RUST_LOG=warn
-parallel -u --progress --eta --joblog="$WORKSPACE"/job.log --xargs -n"$PACKAGES_PER_PARTITION" -P"$CONCURRENCY" -a "$INDEX_FILE" -I{} "./target/release/pypi-import-test combine {#} ${COMBINED_DIR}/{#}/ {} 2>&1"
+split -l "$REPOS_PER_SPLIT" "$INDEX_FILE" "$COMBINED_DIR/splits/a"
+
+fd . "$COMBINED_DIR/splits/" | parallel --progress --eta -u -P6 -I@ "./combine_single.sh $COMBINED_DIR/repos/{#}/ $BASE_REPO @"
