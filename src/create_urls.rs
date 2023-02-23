@@ -90,13 +90,13 @@ pub fn extract_urls(
             .collect(),
     };
 
-    let files = match limit {
-        None => files,
-        Some(_) => {
-            files.shuffle(&mut thread_rng());
-            files.into_iter().take(split).collect()
-        }
-    };
+    // let files = match limit {
+    //     None => files,
+    //     Some(_) => {
+    //         files.shuffle(&mut thread_rng());
+    //         files.into_iter().take(split).collect()
+    //     }
+    // };
 
     let pbar = create_pbar(files.len() as u64, "Extracting URLs");
 

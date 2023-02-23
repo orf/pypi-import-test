@@ -55,8 +55,9 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                     let start = Instant::now();
                     commit(&repo, &mut index, &job, path);
                     let commit_time = start.elapsed().as_secs_f32();
-
-                    pbar.println(format!("Finished {} {}. Files: {total_files} / Extract time: {extract_time:.3} / Commit time: {commit_time:.3}", job.name, job.version));
+                    if extract_time > 0.5 || commit_time > 0.5 {
+                        println!("Finished {} {}. Files: {total_files} / Extract time: {extract_time:.3} / Commit time: {commit_time:.3}", job.name, job.version);
+                    }
                 }
             },
             Err(e) => {
