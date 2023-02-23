@@ -65,6 +65,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
             }
         }
         fs::remove_file(download_path).ok();
+        drop(temp_dir);
     }
 
     flush_repo(&repo, index, &odb, mempack_backend);
