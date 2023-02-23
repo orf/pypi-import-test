@@ -44,7 +44,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     for (job, temp_dir, download_path) in downloaded.into_iter() {
         pbar.inc(1);
         let extract_start = Instant::now();
-        let extract_result = extract(&job, download_path, &odb, &mut index);
+        let extract_result = extract(&job, &download_path, &odb, &mut index);
         let extract_time = extract_start.elapsed().as_secs_f32();
 
         match extract_result {
@@ -64,7 +64,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                 error!("Error running job: {e}");
             }
         }
-        drop(temp_dir);
+        fs::remove_file(download_path).ok();
     }
 
     flush_repo(&repo, index, &odb, mempack_backend);
@@ -74,7 +74,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
 
 pub fn extract(
     job: &DownloadJob,
-    archive_path: PathBuf,
+    archive_path: &PathBuf,
     odb: &Odb,
     index: &mut Index,
 ) -> anyhow::Result<Option<(String, usize)>> {
