@@ -1,7 +1,7 @@
+use git2::build::TreeUpdateBuilder;
+use git2::{FileMode, ObjectType, Repository, Signature, Sort, Time, TreeWalkMode};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use git2::build::TreeUpdateBuilder;
-use git2::{FileMode, ObjectType, Repository, Signature, Time, TreeWalkMode};
 
 use chrono::Utc;
 use log::warn;
@@ -19,12 +19,10 @@ pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Re
         })
         .collect();
 
-    let all_commits: Vec<_> = all_branches
+    let _all_commits: Vec<_> = all_branches
         .iter()
         .map(|b| b.get().peel_to_commit().unwrap())
         .collect();
-
-    warn!("Merging {} commits", all_branches.len());
 
     let head_tree = repo.head().unwrap().peel_to_tree().unwrap();
     let head_commit = repo.head().unwrap().peel_to_commit().unwrap();
@@ -35,35 +33,55 @@ pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Re
     // I messed up and there are duplicates. This works around that.
     let mut workaround: HashMap<String, u16> = HashMap::new();
 
-    for commit in &all_commits {
-        // Combine all trees into a single treebuilder.
-        commit
-            .tree()
-            .unwrap()
-            .walk(TreeWalkMode::PreOrder, |x, y| {
-                // code/adb3/1.1.0/tar.gz/ -> 4 splits.
-                if let (4, Some(ObjectType::Tree)) = (x.split('/').count(), y.kind()) {
-                    let mut name = format!("{}{}", x, y.name().unwrap());
-                    match workaround.entry(name.clone()) {
-                        Entry::Occupied(mut v) => {
-                            v.insert(v.get() + 1);
-                            name = format!("{}{}{}", x, v.get(), y.name().unwrap());
+    all_branches.iter().for_each(|b| {
+        // println!("New branch");
+        let mut walk2 = repo.revwalk().unwrap();
+        walk2.push(b.get().peel_to_commit().unwrap().id()).unwrap();
+        walk2.set_sorting(Sort::REVERSE).unwrap();
+        walk2.hide_head().unwrap();
+        match walk2.into_iter().last() {
+            None => {
+                println!("NONE?")
+            }
+            Some(v) => {
+                let last = v.unwrap();
+                let commit_tree = repo.find_commit(last).unwrap().tree().unwrap();
+                commit_tree
+                    .walk(TreeWalkMode::PreOrder, |x, y| {
+                        // code/adb3/1.1.0/tar.gz/ -> 4 splits.
+                        if let (4, Some(ObjectType::Tree)) = (x.split('/').count(), y.kind()) {
+                            let mut name = format!("{}{}", x, y.name().unwrap());
+                            match workaround.entry(name.clone()) {
+                                Entry::Occupied(mut v) => {
+                                    v.insert(v.get() + 1);
+                                    name = format!("{}{}{}", x, v.get(), y.name().unwrap());
+                                }
+                                Entry::Vacant(v) => {
+                                    v.insert(0);
+                                }
+                            }
+                            update.upsert(name, y.id(), FileMode::Tree);
+                            return 1;
                         }
-                        Entry::Vacant(v) => {
-                            v.insert(0);
-                        }
-                    }
-                    update.upsert(
-                        name,
-                        y.id(),
-                        FileMode::Tree,
-                    );
-                    return 1;
-                }
-                0
-            })
-            .unwrap();
-    }
+                        0
+                    })
+                    .unwrap();
+            }
+        }
+
+        // for item in walk2 {
+        //     println!("Item: {:?}", item);
+        // }
+    });
+
+    warn!("Merging {} commits", all_branches.len());
+
+    // for commit in &all_commits {
+    //     // Combine all trees into a single treebuilder.
+    //     commit
+    //         .tree()
+    //         .unwrap()
+    // }
     warn!("Creating tree");
     let base_tree = update.create_updated(&repo, &head_tree).unwrap();
     let base_tree = repo.find_tree(base_tree).unwrap();
@@ -75,12 +93,11 @@ pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Re
         "tom@tomforb.es",
         &Time::new(time_now.timestamp(), 0),
     )
-        .unwrap();
+    .unwrap();
 
-    // let mut parent_commits = vec![&head_commit];
-    // let all_commits =
-    let mut parent_commits: Vec<_> = all_commits.iter().collect();
-    parent_commits.insert(0, &head_commit);
+    let parent_commits = vec![&head_commit];
+    // let mut parent_commits: Vec<_> = all_commits.iter().collect();
+    // parent_commits.insert(0, &head_commit);
 
     let commit = repo
         .commit(
@@ -102,7 +119,12 @@ pub fn merge_all_branches(repo_path: PathBuf, branch_name: String) -> anyhow::Re
     warn!("Deleting branches");
 
     for mut branch in all_branches {
-        branch.delete().unwrap();
+        match branch.delete() {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Error deleting {}: {e}", branch.name().unwrap().unwrap());
+            }
+        }
     }
 
     warn!("Writing index");

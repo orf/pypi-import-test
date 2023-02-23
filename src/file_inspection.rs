@@ -9,26 +9,6 @@ const KB: u64 = 1024;
 const MB: u64 = 1024 * KB;
 const MAX_FILE_SIZE: u64 = 5 * MB;
 
-const EXCLUDE_PACKAGES: &[&str] = &[
-    // Just a bunch of python files containing base64 encoded contents
-    "pydwf",
-    // Gigantic, not even needed anymore. Same package as tensorflow.
-    "tensorflow-gpu",
-    "tensorflow-cpu",
-    // Nightly tensorflow packages account for a _lot_ of space
-    "tf-nightly",
-    "tf-nightly-cpu",
-    "tensorflow-io-nightly",
-    "tf-nightly-intel",
-    "tf-nightly-cpu-aws",
-    // Other misc nightly packages in the top 10
-    "pyagrum-nightly",
-];
-
-pub fn is_excluded_package(package_name: &str) -> bool {
-    EXCLUDE_PACKAGES.contains(&package_name)
-}
-
 pub fn write_archive_entry_to_odb<R: Read>(
     path: &str,
     size: u64,
