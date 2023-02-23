@@ -44,7 +44,6 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
 
     for (job, temp_dir, download_path) in downloaded.into_iter() {
         pbar.inc(1);
-        pbar.println(format!("Extracting {} {}", job.name, job.version));
         let extract_start = Instant::now();
         let extract_result = extract(&job, download_path, &odb, &mut index);
         let extract_time = extract_start.elapsed().as_secs_f32();
