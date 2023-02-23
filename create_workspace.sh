@@ -37,6 +37,6 @@ cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=500
 #
 #echo "running partitions"
 export RUST_LOG=warn
-fd . "$URLS_DIR" | parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} $TEMPLATE_DIR 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
+fd . "$URLS_DIR" | shuf | parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} $TEMPLATE_DIR 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
 
 #cargo run -q --release -- from-json $URLS_DIR/chunk_0.json $TEMP_DIR/chunk_0/ $PARTITIONS_DIR/chunk_0/ $TEMPLATE_DIR
