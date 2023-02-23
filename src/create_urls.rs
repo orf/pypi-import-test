@@ -135,7 +135,7 @@ pub fn extract_urls(
         .collect();
     let chunks = match limit {
         None => chunks,
-        Some(limit) => chunks.into_iter().take(limit).collect(),
+        Some(limit) => chunks.into_iter().rev().skip(1).take(limit).collect(),
     };
 
     for (idx, chunk) in chunks.into_iter().enumerate() {
