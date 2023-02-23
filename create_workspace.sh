@@ -26,7 +26,7 @@ mkdir -p "$TEMP_DIR"
 
 echo "creating URLs"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=100 --limit=100
-cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=50000 --limit=1
+cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=5000
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"
@@ -37,6 +37,6 @@ cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=500
 #
 #echo "running partitions"
 export RUST_LOG=warn
-#parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -a"$INDEX_FILE" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} $TEMPLATE_DIR 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
+fd . "$URLS_DIR" | parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/{/} $PARTITIONS_DIR/{/} $TEMPLATE_DIR 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
 
-cargo run -q --release -- from-json $URLS_DIR/chunk_0.json $TEMP_DIR/chunk_0/ $PARTITIONS_DIR/chunk_0/ $TEMPLATE_DIR
+#cargo run -q --release -- from-json $URLS_DIR/chunk_0.json $TEMP_DIR/chunk_0/ $PARTITIONS_DIR/chunk_0/ $TEMPLATE_DIR

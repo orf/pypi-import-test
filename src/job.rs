@@ -39,9 +39,8 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     let mut index = repo.index().unwrap();
 
     let downloaded = download_multiple(jobs);
-
-    let pbar = create_pbar(downloaded.len() as u64, "Extracting");
-
+    let total = downloaded.len();
+    let pbar = create_pbar(total as u64, "Extracting");
     for (job, temp_dir, download_path) in downloaded.into_iter() {
         pbar.inc(1);
         let extract_start = Instant::now();
@@ -56,7 +55,8 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                     commit(&repo, &mut index, &job, path);
                     let commit_time = start.elapsed().as_secs_f32();
                     if extract_time > 0.5 || commit_time > 0.5 {
-                        println!("Finished {} {}. Files: {total_files} / Extract time: {extract_time:.3} / Commit time: {commit_time:.3}", job.name, job.version);
+                        let position = pbar.position();
+                        println!("[{position} / {total}] Finished {} {}. Files: {total_files} / Extract time: {extract_time:.3} / Commit time: {commit_time:.3} / Index size: {}", job.name, job.version, index.len());
                     }
                 }
             },
