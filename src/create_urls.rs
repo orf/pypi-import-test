@@ -13,6 +13,8 @@ use std::path::PathBuf;
 
 use crate::utils::create_pbar;
 use indicatif::ParallelProgressIterator;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Url {
@@ -85,20 +87,20 @@ pub fn extract_urls(
         .flatten()
         .filter(|e| e.file_type().is_file());
 
-    let files: Vec<_> = match find {
+    let mut files: Vec<_> = match find {
         None => files_iter.collect(),
         Some(matches) => files_iter
             .filter(|e| matches.iter().any(|m| e.file_name.to_str().unwrap() == m))
             .collect(),
     };
 
-    // let files = match limit {
-    //     None => files,
-    //     Some(_) => {
-    //         files.shuffle(&mut thread_rng());
-    //         files.into_iter().take(split).collect()
-    //     }
-    // };
+    let files = match limit {
+        None => files,
+        Some(_) => {
+            files.shuffle(&mut thread_rng());
+            files.into_iter().take(split).collect()
+        }
+    };
 
     let pbar = create_pbar(files.len() as u64, "Extracting URLs");
 

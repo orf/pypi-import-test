@@ -90,7 +90,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             let item = commit_tree.get_path(tree_path)?;
 
             update.upsert(tree_path, item.id(), FileMode::Tree);
-            println!("{}", message.path);
+
             let tree_oid = update
                 .create_updated(&target_repo, &head_tree)
                 .with_context(|| format!("Duplicate?? {}", message.path))?;

@@ -34,10 +34,10 @@ enum RunType {
         input_file: PathBuf,
 
         #[arg()]
-        work_path: PathBuf,
+        work_dir: PathBuf,
 
         #[arg()]
-        finished_path: PathBuf,
+        finished_dir: PathBuf,
 
         #[arg()]
         template: PathBuf,
@@ -77,25 +77,29 @@ fn main() -> anyhow::Result<()> {
     match args.run_type {
         RunType::FromJson {
             input_file,
-            work_path,
-            finished_path,
+            work_dir,
+            finished_dir,
             template,
         } => {
-            let opts = CopyOptions::new();
-            fs::create_dir(&work_path).unwrap();
-            fs_extra::dir::copy(template.join(".git/"), &work_path, &opts).unwrap();
-            let work_path = fs::canonicalize(&work_path).unwrap();
-
             let reader = BufReader::new(File::open(&input_file).unwrap());
             let input: Vec<DownloadJob> = serde_json::from_reader(reader).unwrap();
 
-            job::run_multiple(&work_path, input)
+            let first_job_time = input.iter().map(|v| v.uploaded_on).min().unwrap();
+            let repo_path = work_dir.join(format!("{first_job_time}"));
+            let finished_path = finished_dir.join(format!("{first_job_time}"));
+
+            let opts = CopyOptions::new();
+            fs::create_dir(&repo_path).unwrap();
+            fs_extra::dir::copy(template.join(".git/"), &repo_path, &opts).unwrap();
+            let repo_path = fs::canonicalize(&repo_path).unwrap();
+
+            job::run_multiple(&repo_path, input)
                 .with_context(|| format!("Input file: {}", input_file.display()))?;
             if finished_path.exists() {
                 fs::remove_dir_all(&finished_path).unwrap();
             }
             fs::create_dir(&finished_path).unwrap();
-            fs::rename(&work_path, &finished_path).unwrap();
+            fs::rename(&repo_path, &finished_path).unwrap();
         }
         RunType::CreateUrls {
             data,
