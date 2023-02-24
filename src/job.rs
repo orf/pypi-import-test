@@ -11,6 +11,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use git2::build::TreeUpdateBuilder;
 use indicatif::ParallelProgressIterator;
@@ -25,6 +26,14 @@ pub struct CommitMessage<'a> {
     pub version: &'a str,
     pub file: &'a str,
     pub path: String,
+}
+
+pub fn log_timer(message: &str, path: &Path, previous_instant: Option<Instant>) -> Option<Instant> {
+    match previous_instant {
+        None => warn!("[{}] {message}", path.display()),
+        Some(p) => warn!("[{}] {message} ({}s elapsed)", path.display(), p.elapsed().as_secs())
+    }
+    Some(Instant::now())
 }
 
 pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Result<()> {
@@ -44,11 +53,13 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     let odb = repo.odb().unwrap();
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
 
+    let start_timer = log_timer("Downloading", repo_path, None);
+
     let downloaded = download_multiple(jobs)?;
     let total = downloaded.len();
     let pbar = create_pbar(total as u64, "Extracting");
 
-    warn!("{} Downloaded, extracting", repo_path.display());
+    let timer = log_timer("Extracting", repo_path, start_timer);
 
     let mut download_results: Vec<_> = downloaded
         .into_par_iter()
@@ -62,7 +73,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
 
     download_results.sort_by(|k1, k2| k1.0.cmp(&k2.0));
 
-    warn!("{} Extracted, committing", repo_path.display());
+    let timer = log_timer("Committing", repo_path, timer);
 
     let pbar = create_pbar(download_results.len() as u64, "Committing");
 
@@ -75,8 +86,12 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
         drop(temp_dir);
     }
 
+    log_timer("Flushing", repo_path, timer);
+
     let repo_index = repo.index().unwrap();
     flush_repo(&repo, repo_index, &odb, mempack_backend);
+
+    log_timer("Done", repo_path, start_timer);
 
     Ok(())
 }

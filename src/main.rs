@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<()> {
             let repo_path = fs::canonicalize(&repo_path).unwrap();
 
             job::run_multiple(&repo_path, input)
-                .with_context(|| format!("Input file: {}", input_file.display()))?;
+                .with_context(|| format!("Input file: {}", input_file.display())).unwrap();
             if finished_path.exists() {
                 fs::remove_dir_all(&finished_path).unwrap();
             }
