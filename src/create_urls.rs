@@ -2,8 +2,6 @@ use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use jwalk::{rayon, WalkDir};
 
-use rand::seq::SliceRandom;
-use rand::thread_rng;
 use rayon::prelude::*;
 
 use serde::{Deserialize, Serialize};
@@ -83,7 +81,7 @@ pub fn extract_urls(
         .flatten()
         .filter(|e| e.file_type().is_file());
 
-    let mut files: Vec<_> = match find {
+    let files: Vec<_> = match find {
         None => files_iter.collect(),
         Some(matches) => files_iter
             .filter(|e| matches.iter().any(|m| e.file_name.to_str().unwrap() == m))
