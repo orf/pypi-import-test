@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use jwalk::{rayon, WalkDir};
+use std::cmp::Ordering;
 
 use rayon::prelude::*;
 
@@ -27,12 +28,24 @@ struct PackageVersion {
     urls: Vec<Url>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DownloadJob {
     pub name: String,
     pub version: String,
     pub url: url::Url,
     pub uploaded_on: DateTime<Utc>,
+}
+
+impl PartialOrd<Self> for DownloadJob {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DownloadJob {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.uploaded_on.cmp(&other.uploaded_on)
+    }
 }
 
 impl DownloadJob {
@@ -129,7 +142,7 @@ pub fn extract_urls(
                 .collect::<Vec<_>>()
         })
         .collect();
-    all_urls.sort_by_key(|v| v.uploaded_on);
+    all_urls.sort();
 
     let chunks: Vec<Vec<_>> = all_urls
         .into_iter()

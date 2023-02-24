@@ -10,7 +10,7 @@ pub fn set_pbar_options(pbar: ProgressBar, message: &'static str, tick: bool) ->
     pbar.set_style(
         ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len} ({per_sec})").unwrap(),
     );
-    if tick {
+    if !pbar.is_hidden() && tick {
         pbar.enable_steady_tick(Duration::from_secs(1));
     }
     pbar.set_message(message);

@@ -1,7 +1,8 @@
 use git2::build::TreeUpdateBuilder;
-use git2::{BranchType, FileMode, Repository, Revwalk};
+use git2::{BranchType, Buf, FileMode, Repository, Revwalk};
 
 use std::fs;
+use std::io::Write;
 
 use crate::job::CommitMessage;
 use crate::utils::set_pbar_options;
@@ -15,7 +16,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     let target_head_dir = target_repo.path().join("refs").join("heads");
 
     let odb = target_repo.odb()?;
-    let _mempacked_backend = odb.add_new_mempack_backend(3)?;
+    let mempack_backend = odb.add_new_mempack_backend(3)?;
 
     // Ensure repos are sorted so that tags are somewhat deterministic
     repos.sort();
@@ -24,7 +25,10 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     // Step 1: Create a branch in each target repo and copy the data. this is faster than using a remote.
     for (idx, repo) in repos.iter().enumerate() {
-        let repo = Repository::open(repo)?;
+        let repo = match Repository::open(repo) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
         let head = repo.head()?.peel_to_commit()?;
         let branch_name = format!("import_{idx}");
         repo.branch(&branch_name, &head, true)?;
@@ -58,8 +62,6 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     let mut head_tree = merged_reference.peel_to_tree()?;
 
-    let mut update = TreeUpdateBuilder::new();
-
     for branch in branches.iter().progress_with(progress) {
         let branch = target_repo.find_branch(branch, BranchType::Local)?;
 
@@ -89,6 +91,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             let commit_tree = commit.tree()?;
             let item = commit_tree.get_path(tree_path)?;
 
+            let mut update = TreeUpdateBuilder::new();
             update.upsert(tree_path, item.id(), FileMode::Tree);
 
             let tree_oid = update
@@ -108,6 +111,13 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             parent_commit = target_repo.find_commit(parent_commit_oid)?;
         }
     }
+
+    let mut buf = Buf::new();
+    mempack_backend.dump(&target_repo, &mut buf).unwrap();
+
+    let mut writer = odb.packwriter().unwrap();
+    writer.write_all(&buf).unwrap();
+    writer.commit().unwrap();
 
     // all_branches.iter().for_each(|b| {
     //     let mut walk2 = repo.revwalk().unwrap();

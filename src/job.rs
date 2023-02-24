@@ -1,15 +1,21 @@
 use crate::archive::PackageArchive;
 use crate::create_urls::DownloadJob;
 use crate::downloader::download_multiple;
-use git2::{Buf, Index, IndexEntry, IndexTime, Mempack, Odb, Repository, Signature, Time};
+use git2::{
+    Buf, Commit, FileMode, Index, IndexEntry, IndexTime, Mempack, Odb, Repository, Signature, Time,
+};
 use itertools::Itertools;
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
-use std::time::Instant;
+use std::path::{Path, PathBuf};
+
+use git2::build::TreeUpdateBuilder;
+use indicatif::ParallelProgressIterator;
+use indicatif::ProgressIterator;
+use rayon::prelude::*;
 
 use crate::utils::create_pbar;
 
@@ -37,34 +43,36 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     };
     let odb = repo.odb().unwrap();
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
-    let mut index = repo.index().unwrap();
 
     let downloaded = download_multiple(jobs)?;
     let total = downloaded.len();
     let pbar = create_pbar(total as u64, "Extracting");
-    for (job, temp_dir, download_path) in downloaded.into_iter() {
-        pbar.inc(1);
-        let extract_start = Instant::now();
-        let extract_result = extract(&job, &download_path, &odb, &mut index);
-        let extract_time = extract_start.elapsed().as_secs_f32();
 
-        match extract_result? {
-            None => {}
-            Some((path, total_files)) => {
-                let start = Instant::now();
-                commit(&repo, &mut index, &job, path);
-                let commit_time = start.elapsed().as_secs_f32();
-                if extract_time > 0.5 || commit_time > 0.5 {
-                    let position = pbar.position();
-                    println!("[{position} / {total}] Finished {} {}. Files: {total_files} / Extract time: {extract_time:.3} / Commit time: {commit_time:.3} / Index size: {}", job.name, job.version, index.len());
-                }
-            }
-        }
+    let mut download_results: Vec<_> = downloaded
+        .into_par_iter()
+        .progress_with(pbar)
+        .filter_map(|(job, temp_dir, download_path)| {
+            extract(&job, &download_path, &odb)
+                .unwrap()
+                .map(|(path, total_files, index)| (job, temp_dir, path, total_files, index))
+        })
+        .collect();
+
+    download_results.sort_by(|k1, k2| k1.0.cmp(&k2.0));
+
+    let pbar = create_pbar(download_results.len() as u64, "Committing");
+
+    let mut parent_commit = repo.head().unwrap().peel_to_commit().unwrap();
+    for (job, temp_dir, path, _total_files, index) in
+        download_results.into_iter().progress_with(pbar)
+    {
+        parent_commit = commit(&repo, index, &job, path, parent_commit);
         let _ = fs::remove_dir_all(temp_dir.path());
         drop(temp_dir);
     }
 
-    flush_repo(&repo, index, &odb, mempack_backend);
+    let repo_index = repo.index().unwrap();
+    flush_repo(&repo, repo_index, &odb, mempack_backend);
 
     Ok(())
 }
@@ -73,8 +81,7 @@ pub fn extract(
     job: &DownloadJob,
     archive_path: &PathBuf,
     odb: &Odb,
-    index: &mut Index,
-) -> anyhow::Result<Option<(String, usize)>> {
+) -> anyhow::Result<Option<(String, usize, Index)>> {
     let package_filename = job.package_filename();
     let package_extension = package_filename.rsplit('.').next().unwrap();
     let mut archive =
@@ -122,6 +129,8 @@ pub fn extract(
         None
     };
 
+    let mut index = Index::new()?;
+
     for (file_name, size, oid) in &all_items {
         let file_name = match first_segment_to_skip {
             None => file_name,
@@ -163,24 +172,35 @@ pub fn extract(
     if file_count == 0 {
         Ok(None)
     } else {
-        Ok(Some((prefix, file_count)))
+        Ok(Some((prefix, file_count, index)))
     }
 }
 
-pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_path: String) {
+pub fn commit<'a>(
+    repo: &'a Repository,
+    mut index: Index,
+    info: &DownloadJob,
+    code_path: String,
+    parent: Commit,
+) -> Commit<'a> {
     let filename = info.package_filename();
-    // let index_time = IndexTime::new(i.uploaded_on.timestamp() as i32, 0);
-    // let total_bytes = index.iter().map(|v| v.size).sum::<usize>();
     let signature = Signature::new(
         "Tom Forbes",
         "tom@tomforb.es",
         &Time::new(info.uploaded_on.timestamp(), 0),
     )
     .unwrap();
-    let oid = index.write_tree_to(repo).unwrap();
+    let tree_to_merge_oid = index.write_tree_to(repo).unwrap();
+    let tree_to_merge = repo.find_tree(tree_to_merge_oid).unwrap();
+    let parent_tree = parent.tree().unwrap();
 
-    let tree = repo.find_tree(oid).unwrap();
-    let parent = &repo.head().unwrap().peel_to_commit().unwrap();
+    let tree_path = Path::new(&code_path);
+    let inner_tree_path = tree_to_merge.get_path(tree_path).unwrap();
+
+    let mut update = TreeUpdateBuilder::new();
+    update.upsert(tree_path, inner_tree_path.id(), FileMode::Tree);
+    let updated_tree_oid = update.create_updated(repo, &parent_tree).unwrap();
+    let new_tree = repo.find_tree(updated_tree_oid).unwrap();
 
     let commit_message = serde_json::to_string(&CommitMessage {
         name: &info.name,
@@ -189,15 +209,17 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         path: code_path,
     })
     .unwrap();
-    repo.commit(
-        Some("HEAD"),
-        &signature,
-        &signature,
-        &commit_message,
-        &tree,
-        &[parent],
-    )
-    .unwrap();
+    let oid = repo
+        .commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            &commit_message,
+            &new_tree,
+            &[&parent],
+        )
+        .unwrap();
+    repo.find_commit(oid).unwrap()
 }
 
 pub fn flush_repo(
@@ -206,16 +228,6 @@ pub fn flush_repo(
     object_db: &Odb,
     mempack_backend: Mempack,
 ) {
-    // match repo.head() {
-    //     Ok(h) => {
-    //         let commit = h.peel_to_commit().unwrap();
-    //         repo.branch(&format!("{}-{}", info.name, info.chunk), &commit, true)
-    //             .unwrap();
-    //     }
-    //     Err(e) => {
-    //         panic!("Could not get repo head? {e}");
-    //     }
-    // }
     let mut buf = Buf::new();
     mempack_backend.dump(repo, &mut buf).unwrap();
 
