@@ -5,7 +5,7 @@ use git2::{
     Buf, Commit, FileMode, Index, IndexEntry, IndexTime, Mempack, Odb, Repository, Signature, Time,
 };
 use itertools::Itertools;
-use log::error;
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::fs::File;
@@ -48,6 +48,8 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     let total = downloaded.len();
     let pbar = create_pbar(total as u64, "Extracting");
 
+    warn!("{repo_path} Downloaded, extracting");
+
     let mut download_results: Vec<_> = downloaded
         .into_par_iter()
         .progress_with(pbar)
@@ -59,6 +61,8 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
         .collect();
 
     download_results.sort_by(|k1, k2| k1.0.cmp(&k2.0));
+
+    warn!("{repo_path} Extracted, committing");
 
     let pbar = create_pbar(download_results.len() as u64, "Committing");
 
