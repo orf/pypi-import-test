@@ -50,15 +50,15 @@ enum RunType {
         #[arg(long, short)]
         limit: Option<usize>,
         #[arg(long, short)]
-        find: Option<String>,
+        find: Option<Vec<String>>,
         #[arg(long, short, default_value = "5000")]
         split: usize,
     },
     MergeBranches {
         #[arg()]
-        repo: PathBuf,
+        into: PathBuf,
         #[arg()]
-        branch_name: String,
+        repos: Vec<PathBuf>,
     },
     ParseFile {
         #[arg()]
@@ -112,8 +112,8 @@ fn main() -> anyhow::Result<()> {
             // let x = inspect::parse_index(repo);
             // println!("Total: {}", x);
         }
-        RunType::MergeBranches { repo, branch_name } => {
-            combine::merge_all_branches(repo, branch_name).unwrap();
+        RunType::MergeBranches { into, repos } => {
+            combine::merge_all_branches(into, repos)?;
         }
     }
     Ok(())

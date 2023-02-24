@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
+use itertools::Itertools;
 
 use crate::utils::create_pbar;
 
@@ -83,29 +84,48 @@ pub fn extract(
             }
             Some(v) => v,
         };
-    let tar_gz_first_segment = format!("{}-{}/", job.name, job.version).to_ascii_lowercase();
+
     let prefix = format!("packages/{package_filename}/");
     let index_time = IndexTime::new(job.uploaded_on.timestamp() as i32, 0);
     let mut file_count = 0;
-    for v in archive.all_items(odb) {
-        let (file_name, size, oid) = match v {
-            Ok(v) => v,
+
+    let all_items: Vec<_> = archive.all_items(odb).flat_map(|v| {
+        match v {
+            Ok(v) => Some(v),
             Err(e) => {
                 error!("Error with package {}: {e}", job.url);
-                continue;
+                None
+            }
+        }
+    }).collect();
+
+    // Some packages have hidden "duplicate" packages. For example there is `fs.googledrivefs` and `fs-googledrivefs`.
+    // These are distinct *packages*, but `fs-googledrivefs` has releases that are also under `fs.googledrivefs`.
+    // I've verified that there are currently no two files with the same name but different hashes, which is a relief,
+    // but the fact two packages have the same name causes issues with the "strip first component" check.
+    // Instead of checking for a specific string, we can instead check if there is a shared common prefix with
+    // all files. If there is only one shared common prefix then we strip it.
+    let first_segment_to_skip = if all_items.len() > 1 {
+        let first_segments: Vec<_> = all_items.iter().flat_map(|(path, _, _)| path.splitn(2, '/').next()).sorted().unique().take(2).collect();
+        match &first_segments[..] {
+            &[prefix] => Some(prefix),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    for (file_name, size, oid) in &all_items {
+        let file_name = match first_segment_to_skip {
+            None => file_name,
+            Some(to_strip) => {
+                if file_name.starts_with(to_strip) {
+                    &file_name[to_strip.len() + 1..]
+                } else {
+                    file_name
+                }
             }
         };
-
-        let file_name = if file_name
-            .to_ascii_lowercase()
-            .starts_with(&tar_gz_first_segment)
-        {
-            &file_name[tar_gz_first_segment.len()..]
-        } else {
-            &*file_name
-        };
-
-        // println!("File name: {package_filename} '{tar_gz_first_segment}' - '{file_name}'");
 
         // Some paths are weird. A release in backports.ssl_match_hostname contains
         // files with double slashes: `src/backports/ssl_match_hostname//backports.ssl_match_hostname-3.4.0.1.tar.gz.asc`
@@ -123,13 +143,13 @@ pub fn extract(
             mode: 0o100644,
             uid: 0,
             gid: 0,
-            file_size: size as u32,
-            id: oid,
+            file_size: *size as u32,
+            id: *oid,
             flags: 0,
             flags_extended: 0,
             path: path.into_bytes(),
         };
-        index.add(&entry).unwrap();
+        index.add(&entry)?;
         file_count += 1;
     }
 
@@ -149,7 +169,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         "tom@tomforb.es",
         &Time::new(info.uploaded_on.timestamp(), 0),
     )
-    .unwrap();
+        .unwrap();
     let oid = index.write_tree_to(repo).unwrap();
 
     let tree = repo.find_tree(oid).unwrap();
@@ -161,7 +181,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         file: filename,
         path: code_path,
     })
-    .unwrap();
+        .unwrap();
     repo.commit(
         Some("HEAD"),
         &signature,
@@ -170,7 +190,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         &tree,
         &[parent],
     )
-    .unwrap();
+        .unwrap();
 }
 
 pub fn flush_repo(
