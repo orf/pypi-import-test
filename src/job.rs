@@ -1,6 +1,6 @@
 use crate::archive::PackageArchive;
-use crate::downloader::download_multiple;
 use crate::create_urls::DownloadJob;
+use crate::downloader::download_multiple;
 use git2::{Buf, Index, IndexEntry, IndexTime, Mempack, Odb, Repository, Signature, Time};
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
     let mut index = repo.index().unwrap();
 
-    let downloaded = download_multiple(jobs);
+    let downloaded = download_multiple(jobs)?;
     let total = downloaded.len();
     let pbar = create_pbar(total as u64, "Extracting");
     for (job, temp_dir, download_path) in downloaded.into_iter() {
@@ -47,24 +47,19 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
         let extract_result = extract(&job, &download_path, &odb, &mut index);
         let extract_time = extract_start.elapsed().as_secs_f32();
 
-        match extract_result {
-            Ok(v) => match v {
-                None => {}
-                Some((path, total_files)) => {
-                    let start = Instant::now();
-                    commit(&repo, &mut index, &job, path);
-                    let commit_time = start.elapsed().as_secs_f32();
-                    if extract_time > 0.5 || commit_time > 0.5 {
-                        let position = pbar.position();
-                        println!("[{position} / {total}] Finished {} {}. Files: {total_files} / Extract time: {extract_time:.3} / Commit time: {commit_time:.3} / Index size: {}", job.name, job.version, index.len());
-                    }
+        match extract_result? {
+            None => {}
+            Some((path, total_files)) => {
+                let start = Instant::now();
+                commit(&repo, &mut index, &job, path);
+                let commit_time = start.elapsed().as_secs_f32();
+                if extract_time > 0.5 || commit_time > 0.5 {
+                    let position = pbar.position();
+                    println!("[{position} / {total}] Finished {} {}. Files: {total_files} / Extract time: {extract_time:.3} / Commit time: {commit_time:.3} / Index size: {}", job.name, job.version, index.len());
                 }
-            },
-            Err(e) => {
-                error!("Error running job: {e}");
             }
         }
-        fs::remove_file(download_path).ok();
+        let _ = fs::remove_dir_all(temp_dir.path());
         drop(temp_dir);
     }
 
@@ -101,7 +96,10 @@ pub fn extract(
             }
         };
 
-        let file_name = if file_name.to_ascii_lowercase().starts_with(&tar_gz_first_segment) {
+        let file_name = if file_name
+            .to_ascii_lowercase()
+            .starts_with(&tar_gz_first_segment)
+        {
             &file_name[tar_gz_first_segment.len()..]
         } else {
             &*file_name
@@ -151,7 +149,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         "tom@tomforb.es",
         &Time::new(info.uploaded_on.timestamp(), 0),
     )
-        .unwrap();
+    .unwrap();
     let oid = index.write_tree_to(repo).unwrap();
 
     let tree = repo.find_tree(oid).unwrap();
@@ -163,7 +161,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         file: filename,
         path: code_path,
     })
-        .unwrap();
+    .unwrap();
     repo.commit(
         Some("HEAD"),
         &signature,
@@ -172,7 +170,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         &tree,
         &[parent],
     )
-        .unwrap();
+    .unwrap();
 }
 
 pub fn flush_repo(

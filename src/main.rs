@@ -1,7 +1,7 @@
 mod archive;
 mod combine;
-mod downloader;
 mod create_urls;
+mod downloader;
 mod file_inspection;
 mod inspect;
 mod job;
@@ -13,6 +13,7 @@ use std::io::BufReader;
 
 use clap::Parser;
 
+use anyhow::Context;
 use std::path::PathBuf;
 
 use crate::create_urls::DownloadJob;
@@ -85,10 +86,11 @@ fn main() -> anyhow::Result<()> {
             fs_extra::dir::copy(template.join(".git/"), &work_path, &opts).unwrap();
             let work_path = fs::canonicalize(&work_path).unwrap();
 
-            let reader = BufReader::new(File::open(input_file).unwrap());
+            let reader = BufReader::new(File::open(&input_file).unwrap());
             let input: Vec<DownloadJob> = serde_json::from_reader(reader).unwrap();
 
-            job::run_multiple(&work_path, input)?;
+            job::run_multiple(&work_path, input)
+                .with_context(|| format!("Input file: {}", input_file.display()))?;
             if finished_path.exists() {
                 fs::remove_dir_all(&finished_path).unwrap();
             }

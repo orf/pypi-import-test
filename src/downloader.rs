@@ -5,7 +5,6 @@ use tokio::{fs, io};
 
 use std::path::PathBuf;
 
-use log::error;
 use reqwest::Client;
 use tempdir::TempDir;
 
@@ -40,47 +39,43 @@ fn to_tokio_async_read(r: impl futures::io::AsyncRead) -> impl tokio::io::AsyncR
     tokio_util::compat::FuturesAsyncReadCompatExt::compat(r)
 }
 
-pub fn download_multiple(packages: Vec<DownloadJob>) -> Vec<(DownloadJob, TempDir, PathBuf)> {
+pub fn download_multiple(
+    packages: Vec<DownloadJob>,
+) -> anyhow::Result<Vec<(DownloadJob, TempDir, PathBuf)>> {
     let total = packages.len();
     let pbar = create_pbar(total as u64, "Downloading");
-
-    let results = tokio::runtime::Builder::new_multi_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap()
-        .block_on(async {
-            let mut results = Vec::with_capacity(total);
-            let client = Client::builder()
-                .http2_prior_knowledge()
-                .http2_adaptive_window(true)
-                .user_agent(APP_USER_AGENT)
-                .build()
-                .unwrap();
+        .unwrap();
 
-            let result_stream = stream::iter(packages)
-                .map(|job| {
-                    let client = &client;
-                    download(client, job)
-                })
-                .buffer_unordered(25);
+    let results = runtime.block_on(async {
+        let mut results = Vec::with_capacity(total);
+        let client = Client::builder()
+            .http2_prior_knowledge()
+            .http2_adaptive_window(true)
+            .user_agent(APP_USER_AGENT)
+            .build()
+            .unwrap();
 
-            result_stream
-                .fold(&mut results, |results, b| async {
-                    pbar.inc(1);
-                    match b {
-                        Ok(res) => {
-                            results.push(res);
-                        }
-                        Err(e) => {
-                            error!("Error processing URL: {e}")
-                        }
-                    }
-                    results
-                })
-                .await;
+        let mut result_stream = stream::iter(packages)
+            .map(|job| {
+                let client = &client;
+                download(client, job)
+            })
+            .buffer_unordered(25);
 
-            results
-        });
+        while let Some(res) = result_stream.next().await {
+            pbar.inc(1);
+            match res {
+                Ok(item) => {
+                    results.push(item);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(results)
+    })?;
 
-    results
+    Ok(results)
 }
