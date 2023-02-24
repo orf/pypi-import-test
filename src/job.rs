@@ -48,7 +48,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     let total = downloaded.len();
     let pbar = create_pbar(total as u64, "Extracting");
 
-    warn!("{repo_path} Downloaded, extracting");
+    warn!("{} Downloaded, extracting", repo_path.display());
 
     let mut download_results: Vec<_> = downloaded
         .into_par_iter()
@@ -62,7 +62,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
 
     download_results.sort_by(|k1, k2| k1.0.cmp(&k2.0));
 
-    warn!("{repo_path} Extracted, committing");
+    warn!("{} Extracted, committing", repo_path.display());
 
     let pbar = create_pbar(download_results.len() as u64, "Committing");
 
