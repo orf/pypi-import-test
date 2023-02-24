@@ -67,14 +67,16 @@ pub fn extract_urls(
     split: usize,
 ) {
     let find = find.map(|v| {
-        v.into_iter().flat_map(|v| {
-            v.split('\n')
-                .flat_map(|l| l.split(' '))
-                .filter(|v| !v.is_empty())
-                .map(|v| v.trim().to_string())
-                .filter(|v| !v.starts_with('#'))
-                .collect::<Vec<_>>()
-        }).collect::<Vec<_>>()
+        v.into_iter()
+            .flat_map(|v| {
+                v.split('\n')
+                    .flat_map(|l| l.split(' '))
+                    .filter(|v| !v.is_empty())
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.starts_with('#'))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
     });
 
     let files_iter = WalkDir::new(dir)

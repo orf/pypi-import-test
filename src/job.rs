@@ -2,6 +2,7 @@ use crate::archive::PackageArchive;
 use crate::create_urls::DownloadJob;
 use crate::downloader::download_multiple;
 use git2::{Buf, Index, IndexEntry, IndexTime, Mempack, Odb, Repository, Signature, Time};
+use itertools::Itertools;
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -9,7 +10,6 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
-use itertools::Itertools;
 
 use crate::utils::create_pbar;
 
@@ -89,15 +89,16 @@ pub fn extract(
     let index_time = IndexTime::new(job.uploaded_on.timestamp() as i32, 0);
     let mut file_count = 0;
 
-    let all_items: Vec<_> = archive.all_items(odb).flat_map(|v| {
-        match v {
+    let all_items: Vec<_> = archive
+        .all_items(odb)
+        .flat_map(|v| match v {
             Ok(v) => Some(v),
             Err(e) => {
                 error!("Error with package {}: {e}", job.url);
                 None
             }
-        }
-    }).collect();
+        })
+        .collect();
 
     // Some packages have hidden "duplicate" packages. For example there is `fs.googledrivefs` and `fs-googledrivefs`.
     // These are distinct *packages*, but `fs-googledrivefs` has releases that are also under `fs.googledrivefs`.
@@ -106,7 +107,13 @@ pub fn extract(
     // Instead of checking for a specific string, we can instead check if there is a shared common prefix with
     // all files. If there is only one shared common prefix then we strip it.
     let first_segment_to_skip = if all_items.len() > 1 {
-        let first_segments: Vec<_> = all_items.iter().flat_map(|(path, _, _)| path.splitn(2, '/').next()).sorted().unique().take(2).collect();
+        let first_segments: Vec<_> = all_items
+            .iter()
+            .flat_map(|(path, _, _)| path.split('/').next())
+            .sorted()
+            .unique()
+            .take(2)
+            .collect();
         match &first_segments[..] {
             &[prefix] => Some(prefix),
             _ => None,
@@ -169,7 +176,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         "tom@tomforb.es",
         &Time::new(info.uploaded_on.timestamp(), 0),
     )
-        .unwrap();
+    .unwrap();
     let oid = index.write_tree_to(repo).unwrap();
 
     let tree = repo.find_tree(oid).unwrap();
@@ -181,7 +188,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         file: filename,
         path: code_path,
     })
-        .unwrap();
+    .unwrap();
     repo.commit(
         Some("HEAD"),
         &signature,
@@ -190,7 +197,7 @@ pub fn commit(repo: &Repository, index: &mut Index, info: &DownloadJob, code_pat
         &tree,
         &[parent],
     )
-        .unwrap();
+    .unwrap();
 }
 
 pub fn flush_repo(
