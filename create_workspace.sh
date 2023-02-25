@@ -26,7 +26,7 @@ mkdir -p "$TEMP_DIR"
 
 echo "creating URLs"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=100 --limit=100
-cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=10000 --limit=1
+cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=20000 --limit=1
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"
