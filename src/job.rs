@@ -14,11 +14,13 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use git2::build::TreeUpdateBuilder;
-use indicatif::ParallelProgressIterator;
-use indicatif::ProgressIterator;
 use rayon::prelude::*;
 
-use crate::utils::create_pbar;
+#[cfg(not(feature = "no_progress"))]
+use {
+    crate::utils::create_pbar,
+    indicatif::{ParallelProgressIterator, ProgressIterator},
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitMessage<'a> {
@@ -28,10 +30,10 @@ pub struct CommitMessage<'a> {
     pub path: String,
 }
 
-pub fn log_timer(message: &str, path: &Path, previous_instant: Option<Instant>) -> Option<Instant> {
+fn log_timer(message: &str, path: &str, previous_instant: Option<Instant>) -> Option<Instant> {
     match previous_instant {
-        None => warn!("[{}] {message}", path.display()),
-        Some(p) => warn!("[{}] {message} ({}s elapsed)", path.display(), p.elapsed().as_secs())
+        None => warn!("[{}] {message}", path),
+        Some(p) => warn!("[{}] {message} ({}s elapsed)", path, p.elapsed().as_secs()),
     }
     Some(Instant::now())
 }
@@ -39,6 +41,8 @@ pub fn log_timer(message: &str, path: &Path, previous_instant: Option<Instant>) 
 pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Result<()> {
     git2::opts::strict_object_creation(false);
     git2::opts::strict_hash_verification(false);
+
+    let repo_file_name = repo_path.file_name().unwrap().to_str().unwrap();
 
     let repo = match Repository::open(repo_path) {
         Ok(v) => v,
@@ -53,45 +57,68 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     let odb = repo.odb().unwrap();
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
 
-    let start_timer = log_timer("Downloading", repo_path, None);
+    let start_timer = log_timer("Downloading", repo_file_name, None);
 
     let downloaded = download_multiple(jobs)?;
-    let total = downloaded.len();
-    let pbar = create_pbar(total as u64, "Extracting");
 
-    let timer = log_timer("Extracting", repo_path, start_timer);
+    #[cfg(not(feature = "no_progress"))]
+    let pbar = {
+        let total = downloaded.len();
+        create_pbar(total as u64, "Extracting")
+    };
 
-    let mut download_results: Vec<_> = downloaded
-        .into_par_iter()
-        .progress_with(pbar)
-        .filter_map(|(job, temp_dir, download_path)| {
-            extract(&job, &download_path, &odb)
-                .unwrap()
-                .map(|(path, total_files, index)| (job, temp_dir, path, total_files, index))
-        })
-        .collect();
+    let timer = log_timer("Extracting", repo_file_name, start_timer);
+
+    let mut download_results: Vec<_> = {
+        let iterator = downloaded
+            .into_par_iter()
+            .filter_map(|(job, temp_dir, download_path)| {
+                extract(&job, &download_path, &odb)
+                    .unwrap()
+                    .map(|(path, total_files, index)| (job, temp_dir, path, total_files, index))
+            });
+        #[cfg(not(feature = "no_progress"))]
+        {
+            iterator.progress_with(pbar)
+        }
+        #[cfg(feature = "no_progress")]
+        {
+            iterator
+        }
+    }
+    .collect();
 
     download_results.sort_by(|k1, k2| k1.0.cmp(&k2.0));
 
-    let timer = log_timer("Committing", repo_path, timer);
+    let timer = log_timer("Committing", repo_file_name, timer);
 
+    #[cfg(not(feature = "no_progress"))]
     let pbar = create_pbar(download_results.len() as u64, "Committing");
 
     let mut parent_commit = repo.head().unwrap().peel_to_commit().unwrap();
-    for (job, temp_dir, path, _total_files, index) in
-        download_results.into_iter().progress_with(pbar)
-    {
+    let download_iter = {
+        let iterator = download_results.into_iter();
+        #[cfg(not(feature = "no_progress"))]
+        {
+            iterator.progress_with(pbar)
+        }
+        #[cfg(feature = "no_progress")]
+        {
+            iterator
+        }
+    };
+    for (job, temp_dir, path, _total_files, index) in download_iter {
         parent_commit = commit(&repo, index, &job, path, parent_commit);
         let _ = fs::remove_dir_all(temp_dir.path());
         drop(temp_dir);
     }
 
-    log_timer("Flushing", repo_path, timer);
+    log_timer("Flushing", repo_file_name, timer);
 
     let repo_index = repo.index().unwrap();
     flush_repo(&repo, repo_index, &odb, mempack_backend);
 
-    log_timer("Done", repo_path, start_timer);
+    log_timer("Done", repo_file_name, start_timer);
 
     Ok(())
 }
