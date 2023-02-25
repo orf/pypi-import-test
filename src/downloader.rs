@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use reqwest::Client;
 use tempdir::TempDir;
 
+#[cfg(not(feature = "no_progress"))]
 use crate::utils::create_pbar;
 
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
@@ -43,7 +44,9 @@ pub fn download_multiple(
     packages: Vec<DownloadJob>,
 ) -> anyhow::Result<Vec<(DownloadJob, TempDir, PathBuf)>> {
     let total = packages.len();
+    #[cfg(not(feature = "no_progress"))]
     let pbar = create_pbar(total as u64, "Downloading");
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -63,9 +66,10 @@ pub fn download_multiple(
                 let client = &client;
                 download(client, job)
             })
-            .buffer_unordered(25);
+            .buffer_unordered(15);
 
         while let Some(res) = result_stream.next().await {
+            #[cfg(not(feature = "no_progress"))]
             pbar.inc(1);
             match res {
                 Ok(item) => {
