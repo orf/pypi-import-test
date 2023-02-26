@@ -8,7 +8,7 @@ export TARGET_DIR="$2"
 export RUST_LOG=warn
 
 export RAYON_NUM_THREADS="25"
-fd -a . "$TARGET_DIR" | sort | head -n 1 | parallel -u --xargs -N10 -I@ "./target/release/pypi-import-test merge-branches $COMBINED_DIR/{#} @ 2>&1"
+fd -a . "$TARGET_DIR" | sort | head -n 10 | parallel -u --xargs -N10 -I@ "./target/release/pypi-import-test merge-branches $COMBINED_DIR/{#} @ 2>&1"
 
 #
 #export COMBINED_DIR="$1"

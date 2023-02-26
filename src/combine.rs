@@ -1,4 +1,4 @@
-use git2::{BranchType, ObjectType, Repository};
+use git2::{BranchType, Commit, Error, ErrorCode, FileMode, ObjectType, Repository, Tree, TreeBuilder, TreeEntry};
 
 use std::fs;
 
@@ -7,9 +7,11 @@ use crate::utils::log_timer;
 use anyhow::Context;
 
 use std::path::{Path, PathBuf};
+use git2::build::TreeUpdateBuilder;
+use itertools::Itertools;
 
 pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Result<()> {
-    let target_repo = Repository::clone("file:///Users/tom/tmp/combined/pypi-code/", &into)?;
+    let target_repo = Repository::init(&into)?;
     let target_pack_dir = target_repo.path().join("objects").join("pack");
     let target_head_dir = target_repo.path().join("refs").join("heads");
 
@@ -18,7 +20,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     // Ensure repos are sorted so that tags are somewhat deterministic
     repos.sort();
 
-    let mut branches = vec![];
+    // let mut branches = vec![];
 
     let mut previous = log_timer("Starting", into_file_name, None);
 
@@ -29,9 +31,6 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             Ok(r) => r,
             Err(_) => continue,
         };
-        let head = repo.head()?.peel_to_commit()?;
-        let branch_name = format!("import_{idx}");
-        repo.branch(&branch_name, &head, true)?;
 
         let pack_dir = repo.path().join("objects").join("pack");
         for item in fs::read_dir(pack_dir)? {
@@ -41,91 +40,158 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
                 fs::copy(item.path(), &to_path).with_context(|| format!("Error copying {} to {}", item.path().display(), to_path.display()))?;
             }
         }
-
-        fs::write(target_head_dir.join(&branch_name), head.id().to_string())?;
-
-        branches.push(branch_name);
     }
 
     let odb = target_repo.odb()?;
 
     let mut commits = vec![];
     odb.foreach(|v| {
-        let obj = odb.read(*v).unwrap();
-        if obj.kind() == ObjectType::Commit {
+        let (_, obj_type) = odb.read_header(*v).unwrap();
+        if obj_type == ObjectType::Commit {
             commits.push(*v);
         }
         true
     })?;
 
+    let mut commits: Vec<_> = commits.into_iter().map(|oid| {
+        target_repo.find_commit(oid).unwrap()
+    }).sorted_by(|c1, c2| {
+        c1.time().cmp(&c2.time())
+    }).collect();
+
     println!("Got commits: {}", commits.len());
-    unreachable!("foo");
 
-    let merged_reference = target_repo
-        .branch("merged", &target_repo.head()?.peel_to_commit()?, true)?
-        .into_reference();
+    let mut head_tree = target_repo.find_tree(
+        target_repo.treebuilder(None)?.write()?
+    )?;
 
-    let mut head_tree = target_repo.head().unwrap().peel_to_tree().unwrap();
-    let mut parent_commit = target_repo.head().unwrap().peel_to_commit().unwrap();
+    let mut parent_commit = None;
 
-    for branch in branches {
-        previous = log_timer("Branch", into_file_name, previous);
-        let branch = target_repo.find_branch(&branch, BranchType::Local)?;
-        let branch_commit = target_repo.reference_to_annotated_commit(&branch.into_reference())?;
-        let mut revwalk = target_repo.revwalk()?;
-        revwalk.push(branch_commit.id())?;
-        revwalk.hide_head()?;
+    for commit in commits {
+        let commit_message = commit.message().unwrap();
+        println!("Message: {commit_message}");
+        let message: CommitMessage = serde_json::from_str(commit_message)
+            .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
 
-        for commit_oid in revwalk {
-            let commit_oid = commit_oid?;
-            let commit = target_repo.find_commit(commit_oid)?;
-            let commit_message = commit.message().unwrap();
-            let message: CommitMessage = serde_json::from_str(commit_message)
-                .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
-            let tree_path = Path::new(&message.path);
-            let commit_tree = commit.tree()?;
-            let item = commit_tree.get_path(tree_path)?;
+        // let new_path = format!("{}/{}", message.name, message.file);
 
-            let mut repo_tree_builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
+        // let tree_path = Path::new(&message.path);
+        let commit_tree = commit.tree()?;
 
-            // let mut package_tree_builder = match repo_tree_builder.get("").unwrap() {
-            //     None => target_repo.treebuilder(None).unwrap(),
-            //     Some(v) => {
-            //         let inner_tree = target_repo.find_tree(v.id()).unwrap();
-            //         target_repo.treebuilder(Some(&inner_tree)).unwrap()
-            //     }
-            // };
+        let mut builder = TreeUpdateBuilder::new();
+        builder.upsert(
+            message.path, commit_tree.id(), FileMode::Tree,
+        );
+        let updated_oid = builder.create_updated(&target_repo, &head_tree).unwrap();
+        head_tree = target_repo.find_tree(updated_oid)?;
 
-            repo_tree_builder
-                .insert(
-                    tree_path
-                        .to_str()
-                        .unwrap()
-                        .strip_prefix("packages/")
-                        .unwrap()
-                        .strip_suffix('/')
-                        .unwrap(),
-                    item.id(),
-                    0o040000,
-                )
-                .unwrap();
-            let package_tree_oid = repo_tree_builder.write().unwrap();
-            // repo_tree_builder
-            //     .insert("packages", package_tree_oid, 0o040000)
-            //     .unwrap();
-            // let repo_tree_oid = repo_tree_builder.write().unwrap();
-            head_tree = target_repo.find_tree(package_tree_oid).unwrap();
-            let parent_commit_oid = target_repo.commit(
-                merged_reference.name(),
-                &commit.author(),
-                &commit.committer(),
-                commit_message,
-                &head_tree,
-                &[&parent_commit],
-            )?;
-            parent_commit = target_repo.find_commit(parent_commit_oid).unwrap();
-        }
+        let parent_commit_oid = match &parent_commit {
+            // I don't know how to generalise this :(
+            None => {
+                target_repo.commit(
+                    None,
+                    &commit.author(),
+                    &commit.committer(),
+                    commit_message,
+                    &head_tree,
+                    &[],
+                )?
+            }
+            Some(c) => {
+                target_repo.commit(
+                    None,
+                    &commit.author(),
+                    &commit.committer(),
+                    commit_message,
+                    &head_tree,
+                    &[c],
+                )?
+            }
+        };
+        parent_commit = Some(target_repo.find_commit(parent_commit_oid)?)
     }
+
+    target_repo.branch(
+        "imported",
+        &parent_commit.unwrap(),
+        true
+    ).unwrap();
+
+
+    // let mut repo_tree_builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
+
+
+    // let package_name_tree = match head_tree.get_path(message.name.as_ref()) {
+    //     Ok(e) => {
+    //         target_repo.find_tree(e.id())?
+    //     }
+    //     Err(e) if e.code() == ErrorCode::NotFound => {
+    //         let mut new_tree = target_repo.treebuilder(None).unwrap();
+    //         new_tree.insert(
+    //             package_file_name,
+    //             commit_tree.id(),
+    //             0o040000
+    //         ).unwrap();
+    //         target_repo.find_tree(
+    //             new_tree.write()?
+    //         )?
+    //     },
+    //     Err(e) => {
+    //         panic!("Unknown git error: {e}")
+    //     }
+    // };
+
+
+    // repo_tree_builder.insert(
+    //     format!("{new_path}/foo"),
+    //     commit_tree.id(),
+    //     0o040000
+    // )?;
+    // repo_tree_builder.write().unwrap();
+
+    // repo_tree_builder
+    //     .insert(
+    //         tree_path
+    //             .to_str()
+    //             .unwrap()
+    //             .strip_prefix("packages/")
+    //             .unwrap()
+    //             .strip_suffix('/')
+    //             .unwrap(),
+    //         item.id(),
+    //         0o040000,
+    //     )
+    //     .unwrap();
+    // let package_tree_oid = repo_tree_builder.write().unwrap();
+    // // repo_tree_builder
+    // //     .insert("packages", package_tree_oid, 0o040000)
+    // //     .unwrap();
+    // // let repo_tree_oid = repo_tree_builder.write().unwrap();
+    // head_tree = target_repo.find_tree(package_tree_oid).unwrap();
+
+    // parent_commit = target_repo.find_commit(parent_commit_oid).unwrap();
+    // }
+
+    // let merged_reference = target_repo
+    //     .branch("merged", &target_repo.head()?.peel_to_commit()?, true)?
+    //     .into_reference();
+    //
+    // let mut head_tree = target_repo.head().unwrap().peel_to_tree().unwrap();
+    // let mut parent_commit = target_repo.head().unwrap().peel_to_commit().unwrap();
+    //
+    // for branch in branches {
+    //     previous = log_timer("Branch", into_file_name, previous);
+    //     let branch = target_repo.find_branch(&branch, BranchType::Local)?;
+    //     let branch_commit = target_repo.reference_to_annotated_commit(&branch.into_reference())?;
+    //     let mut revwalk = target_repo.revwalk()?;
+    //     revwalk.push(branch_commit.id())?;
+    //     revwalk.hide_head()?;
+    //
+    //     for commit_oid in revwalk {
+    //         let commit_oid = commit_oid?;
+    //         let commit = target_repo.find_commit(commit_oid)?;
+    //     }
+    // }
 
     // let mut buf = Buf::new();
     // mempack_backend.dump(&target_repo, &mut buf).unwrap();

@@ -69,5 +69,8 @@ pub fn skip_archive_entry(name: &str, size: u64) -> bool {
     if !name.ends_with(".py") {
         return true;
     }
+    if name.contains("/venv/") || name.contains("/.venv/") {
+        return true
+    }
     false
 }

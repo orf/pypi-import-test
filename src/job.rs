@@ -24,7 +24,7 @@ pub struct CommitMessage<'a> {
     pub name: &'a str,
     pub version: &'a str,
     pub file: &'a str,
-    pub path: String,
+    pub path: PathBuf,
 }
 
 static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
@@ -225,7 +225,7 @@ pub fn commit<'a>(
         name: &info.name,
         version: &info.version,
         file: filename,
-        path: code_path,
+        path: code_path.into(),
     })
     .unwrap();
     let tree = repo.find_tree(tree_oid).unwrap();
