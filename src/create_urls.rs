@@ -12,8 +12,6 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 
-use crate::utils::create_pbar;
-use indicatif::ParallelProgressIterator;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
@@ -115,11 +113,9 @@ pub fn extract_urls(
         }
     };
 
-    let pbar = create_pbar(files.len() as u64, "Extracting URLs");
+    let iter = { files.into_par_iter() };
 
-    let mut all_urls: Vec<_> = files
-        .into_par_iter()
-        .progress_with(pbar)
+    let mut all_urls: Vec<_> = iter
         .flat_map(|entry| {
             let reader = BufReader::new(File::open(entry.path()).unwrap());
             let versions: HashMap<String, PackageVersion> =
@@ -155,8 +151,9 @@ pub fn extract_urls(
         Some(limit) => chunks.into_iter().rev().skip(1).take(limit).collect(),
     };
 
-    for (idx, chunk) in chunks.into_iter().enumerate() {
-        let output_file_name = format!("chunk_{idx}.json");
+    for chunk in chunks {
+        let first_job_time = chunk.iter().map(|v| v.uploaded_on).min().unwrap();
+        let output_file_name = format!("{first_job_time}.json");
         let output_file = File::create(output_dir.join(output_file_name)).unwrap();
         let writer = BufWriter::new(output_file);
         serde_json::to_writer(writer, &chunk).unwrap();

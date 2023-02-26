@@ -1,7 +1,6 @@
 mod archive;
 mod combine;
 mod create_urls;
-mod downloader;
 mod file_inspection;
 mod inspect;
 mod job;
@@ -88,10 +87,10 @@ fn main() -> anyhow::Result<()> {
             let repo_path = work_dir.join(format!("{first_job_time}"));
             let finished_path = finished_dir.join(format!("{first_job_time}"));
 
-            let opts = CopyOptions::new();
-            fs::create_dir(&repo_path).unwrap();
-            fs_extra::dir::copy(template.join(".git/"), &repo_path, &opts).unwrap();
-            let repo_path = fs::canonicalize(&repo_path).unwrap();
+            // let opts = CopyOptions::new();
+            // fs::create_dir(&repo_path).unwrap();
+            // fs_extra::dir::copy(template.join(".git/"), &repo_path, &opts).unwrap();
+            // let repo_path = fs::canonicalize(&repo_path).unwrap();
 
             job::run_multiple(&repo_path, input)
                 .with_context(|| format!("Input file: {}", input_file.display()))
@@ -118,6 +117,9 @@ fn main() -> anyhow::Result<()> {
             // println!("Total: {}", x);
         }
         RunType::MergeBranches { into, repos } => {
+            // let into = fs::canonicalize(into)?;
+            // To-do: handle errors here
+            // let repos = repos.into_iter().map(|v| fs::canonicalize(v).unwrap()).collect();
             combine::merge_all_branches(into, repos)?;
         }
     }

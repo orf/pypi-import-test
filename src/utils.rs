@@ -1,18 +1,18 @@
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
+use log::warn;
+use std::time::Instant;
 
-pub fn create_pbar(total: u64, message: &'static str) -> ProgressBar {
-    let pbar = ProgressBar::new(total);
-    set_pbar_options(pbar, message, true)
-}
-
-pub fn set_pbar_options(pbar: ProgressBar, message: &'static str, tick: bool) -> ProgressBar {
-    pbar.set_style(
-        ProgressStyle::with_template("{msg} {wide_bar} {pos}/{len} ({per_sec})").unwrap(),
-    );
-    if !pbar.is_hidden() && tick {
-        pbar.enable_steady_tick(Duration::from_secs(1));
+pub fn log_timer(
+    state: &'static str,
+    path: &str,
+    previous_instant: Option<(&'static str, Instant)>,
+) -> Option<(&'static str, Instant)> {
+    match previous_instant {
+        None => warn!("[{}] {state}", path),
+        Some((prev_state, p)) => warn!(
+            "[{}] Started: {state}. {prev_state} finished in {}s",
+            path,
+            p.elapsed().as_secs()
+        ),
     }
-    pbar.set_message(message);
-    pbar
+    Some((state, Instant::now()))
 }

@@ -1,26 +1,23 @@
-use crate::archive::PackageArchive;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+use crate::archive::{PackageArchive, PackageReader};
 use crate::create_urls::DownloadJob;
-use crate::downloader::download_multiple;
-use git2::{
-    Buf, Commit, FileMode, Index, IndexEntry, IndexTime, Mempack, Odb, Repository, Signature, Time,
-};
+
+use anyhow::Context;
+use git2::{Buf, Commit, FileMode, Index, Mempack, Odb, Oid, Repository, Signature, Time, Tree};
 use itertools::Itertools;
-use log::{error, warn};
+use log::error;
 use serde::{Deserialize, Serialize};
+
 use std::fs;
-use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::net::ToSocketAddrs;
+use std::path::PathBuf;
+use std::time::Duration;
 
 use git2::build::TreeUpdateBuilder;
 use rayon::prelude::*;
-
-#[cfg(not(feature = "no_progress"))]
-use {
-    crate::utils::create_pbar,
-    indicatif::{ParallelProgressIterator, ProgressIterator},
-};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitMessage<'a> {
@@ -30,27 +27,11 @@ pub struct CommitMessage<'a> {
     pub path: String,
 }
 
-fn log_timer(
-    state: &'static str,
-    path: &str,
-    previous_instant: Option<(&'static str, Instant)>,
-) -> Option<(&'static str, Instant)> {
-    match previous_instant {
-        None => warn!("[{}] {state}", path),
-        Some((prev_state, p)) => warn!(
-            "[{}] Started: {state}. {prev_state} finished in {}s",
-            path,
-            p.elapsed().as_secs()
-        ),
-    }
-    Some((state, Instant::now()))
-}
+static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Result<()> {
     git2::opts::strict_object_creation(false);
     git2::opts::strict_hash_verification(false);
-
-    let repo_file_name = repo_path.file_name().unwrap().to_str().unwrap();
 
     let repo = match Repository::open(repo_path) {
         Ok(v) => v,
@@ -65,89 +46,82 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
     let odb = repo.odb().unwrap();
     let mempack_backend = odb.add_new_mempack_backend(3).unwrap();
 
-    let start_timer = log_timer("Downloading", repo_file_name, None);
+    let baseline_tree_oid = repo.treebuilder(None)?.write()?;
 
-    let downloaded = download_multiple(jobs)?;
 
-    #[cfg(not(feature = "no_progress"))]
-    let pbar = {
-        let total = downloaded.len();
-        create_pbar(total as u64, "Extracting")
-    };
+    // I get quite a few DNS errors when using MacOS. I'm not sure why, but we could just avoid any
+    // DNS overhead by re-using existing addresses? Fastly uses static anycast IPs, so why do we
+    // need to re-resolve them ever?
+    let dns_result: Result<Vec<_>, _> = "files.pythonhosted.org:443".to_socket_addrs().map(Iterator::collect);
+    let dns_result = dns_result?;
 
-    let timer = log_timer("Extracting", repo_file_name, start_timer);
+    let agent = ureq::AgentBuilder::new()
+        .https_only(true)
+        .timeout_read(Duration::from_secs(30))
+        .user_agent(APP_USER_AGENT)
+        .resolver(move |addr: &str| {
+            match addr {
+                "files.pythonhosted.org:443" => Ok(dns_result.clone()),
+                _ => panic!("Unexpected address {addr}")
+            }
+        })
+        .build();
 
-    let mut download_results: Vec<_> = {
-        let iterator = downloaded
-            .into_par_iter()
-            .filter_map(|(job, temp_dir, download_path)| {
-                extract(&job, &download_path, &odb)
-                    .unwrap()
-                    .map(|(path, total_files, index)| (job, temp_dir, path, total_files, index))
-            });
-        #[cfg(not(feature = "no_progress"))]
-        {
-            iterator.progress_with(pbar)
-        }
-        #[cfg(feature = "no_progress")]
-        {
-            iterator
+    let extracted_packages = jobs
+        .into_par_iter()
+        .map_init(
+            || {
+                let agent = agent.clone();
+                let output_repo = Repository::open(repo_path).unwrap();
+                output_repo.set_odb(&odb).unwrap();
+                (agent, output_repo)
+            },
+            |(agent, repo), job| {
+                let response = agent
+                    .get(job.url.as_str())
+                    .call()
+                    .with_context(|| format!("Error fetching URL {}", job.url))?;
+                let reader = response.into_reader();
+                let item = extract(&job, &odb, reader, repo, &baseline_tree_oid).with_context(|| {
+                    format!(
+                        "Error processing {} / {} / {}",
+                        job.name,
+                        job.version,
+                        job.package_filename()
+                    )
+                })?;
+                Ok::<_, anyhow::Error>((job, item))
+            },
+        )
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (job, result) in extracted_packages {
+        if let Some((path, tree_oid)) = result {
+            commit(&repo, &job, path, tree_oid);
         }
     }
-    .collect();
-
-    download_results.sort_by(|k1, k2| k1.0.cmp(&k2.0));
-
-    let timer = log_timer("Committing", repo_file_name, timer);
-
-    #[cfg(not(feature = "no_progress"))]
-    let pbar = create_pbar(download_results.len() as u64, "Committing");
-
-    let mut parent_commit = repo.head().unwrap().peel_to_commit().unwrap();
-    let download_iter = {
-        let iterator = download_results.into_iter();
-        #[cfg(not(feature = "no_progress"))]
-        {
-            iterator.progress_with(pbar)
-        }
-        #[cfg(feature = "no_progress")]
-        {
-            iterator
-        }
-    };
-    for (job, temp_dir, path, _total_files, index) in download_iter {
-        parent_commit = commit(&repo, index, &job, path, parent_commit);
-        let _ = fs::remove_dir_all(temp_dir.path());
-        drop(temp_dir);
-    }
-
-    log_timer("Flushing", repo_file_name, timer);
 
     let repo_index = repo.index().unwrap();
     flush_repo(&repo, repo_index, &odb, mempack_backend);
-
-    log_timer("Done", repo_file_name, start_timer);
-
     Ok(())
 }
 
 pub fn extract(
     job: &DownloadJob,
-    archive_path: &PathBuf,
     odb: &Odb,
-) -> anyhow::Result<Option<(String, usize, Index)>> {
+    reader: PackageReader,
+    repo: &mut Repository,
+    baseline_tree_oid: &Oid
+) -> anyhow::Result<Option<(String, Oid)>> {
     let package_filename = job.package_filename();
     let package_extension = package_filename.rsplit('.').next().unwrap();
-    let mut archive =
-        match PackageArchive::new(package_extension, File::open(archive_path).unwrap()) {
-            None => {
-                return Ok(None);
-            }
-            Some(v) => v,
-        };
+    let mut archive = match PackageArchive::new(package_extension, reader) {
+        None => {
+            return Ok(None);
+        }
+        Some(v) => v,
+    };
 
-    let prefix = format!("packages/{package_filename}/");
-    let index_time = IndexTime::new(job.uploaded_on.timestamp() as i32, 0);
     let mut file_count = 0;
 
     let all_items: Vec<_> = archive
@@ -158,6 +132,16 @@ pub fn extract(
                 error!("Error with package {}: {e}", job.url);
                 None
             }
+        })
+        // Some releases (btf_extractor-1.6.0-cp39-cp39-win_amd64.whl) have multiple zip entries for the same files.
+        // This is... really annoying. I'm paranoid though - what if someone uses this to "hide" some code?
+        // We could (should?) detect this by also hashing the OID, and renaming the file if there
+        // is a collision?
+        .unique_by(|(name, _)| {
+            let mut s = DefaultHasher::new();
+            name.hash(&mut s);
+            // oid.hash(&mut s);
+            s.finish()
         })
         .collect();
 
@@ -170,7 +154,7 @@ pub fn extract(
     let first_segment_to_skip = if all_items.len() > 1 {
         let first_segments: Vec<_> = all_items
             .iter()
-            .flat_map(|(path, _, _)| path.split('/').next())
+            .flat_map(|(path, _)| path.split('/').next())
             .sorted()
             .unique()
             .take(2)
@@ -183,16 +167,16 @@ pub fn extract(
         None
     };
 
-    let mut index = Index::new()?;
+    let mut tree_builder = TreeUpdateBuilder::new();
 
-    for (file_name, size, oid) in &all_items {
+    for (original_file_name, oid) in &all_items {
         let file_name = match first_segment_to_skip {
-            None => file_name,
+            None => original_file_name,
             Some(to_strip) => {
-                if file_name.starts_with(to_strip) {
-                    &file_name[to_strip.len() + 1..]
+                if original_file_name.starts_with(to_strip) {
+                    &original_file_name[to_strip.len() + 1..]
                 } else {
-                    file_name
+                    original_file_name
                 }
             }
         };
@@ -200,42 +184,35 @@ pub fn extract(
         // Some paths are weird. A release in backports.ssl_match_hostname contains
         // files with double slashes: `src/backports/ssl_match_hostname//backports.ssl_match_hostname-3.4.0.1.tar.gz.asc`
         // This might be an issue with my code somewhere, but everything else seems to be fine.
-        let path = format!("{}/{file_name}", prefix)
+        let path = format!("/{file_name}")
             .replace("/./", "/")
             .replace("/../", "/")
-            .replace("//", "/");
+            .replace("//", "/")
+            // .git/ isn't a valid path. Some packages do have python files within .git!
+            .replace("/.git/", "/dot-git/");
+        let path_without_slash = path.trim_start_matches('/');
 
-        let entry = IndexEntry {
-            ctime: index_time,
-            mtime: index_time,
-            dev: 0,
-            ino: 0,
-            mode: 0o100644,
-            uid: 0,
-            gid: 0,
-            file_size: *size as u32,
-            id: *oid,
-            flags: 0,
-            flags_extended: 0,
-            path: path.into_bytes(),
-        };
-        index.add(&entry)?;
+        tree_builder.upsert(path_without_slash, *oid, FileMode::Blob);
         file_count += 1;
     }
+
+    let baseline_tree = repo.find_tree(*baseline_tree_oid)?;
+    let tree_oid = tree_builder.create_updated(repo, &baseline_tree)?;
+
+    let package_prefix = format!("packages/{}/{package_filename}", job.name);
 
     if file_count == 0 {
         Ok(None)
     } else {
-        Ok(Some((prefix, file_count, index)))
+        Ok(Some((package_prefix, tree_oid)))
     }
 }
 
 pub fn commit<'a>(
     repo: &'a Repository,
-    mut index: Index,
     info: &DownloadJob,
     code_path: String,
-    parent: Commit,
+    tree_oid: Oid,
 ) -> Commit<'a> {
     let filename = info.package_filename();
     let signature = Signature::new(
@@ -244,18 +221,6 @@ pub fn commit<'a>(
         &Time::new(info.uploaded_on.timestamp(), 0),
     )
     .unwrap();
-    let tree_to_merge_oid = index.write_tree_to(repo).unwrap();
-    let tree_to_merge = repo.find_tree(tree_to_merge_oid).unwrap();
-    let parent_tree = parent.tree().unwrap();
-
-    let tree_path = Path::new(&code_path);
-    let inner_tree_path = tree_to_merge.get_path(tree_path).unwrap();
-
-    let mut update = TreeUpdateBuilder::new();
-    update.upsert(tree_path, inner_tree_path.id(), FileMode::Tree);
-    let updated_tree_oid = update.create_updated(repo, &parent_tree).unwrap();
-    let new_tree = repo.find_tree(updated_tree_oid).unwrap();
-
     let commit_message = serde_json::to_string(&CommitMessage {
         name: &info.name,
         version: &info.version,
@@ -263,15 +228,9 @@ pub fn commit<'a>(
         path: code_path,
     })
     .unwrap();
+    let tree = repo.find_tree(tree_oid).unwrap();
     let oid = repo
-        .commit(
-            Some("HEAD"),
-            &signature,
-            &signature,
-            &commit_message,
-            &new_tree,
-            &[&parent],
-        )
+        .commit(None, &signature, &signature, &commit_message, &tree, &[])
         .unwrap();
     repo.find_commit(oid).unwrap()
 }
