@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 
 export RUSTFLAGS="-Ctarget-cpu=native"
-cargo build --release -F "no_progress"
+cargo build --release
 
 export WORKSPACE="$1"
 export REPOS_DIRECTORY="$2"
@@ -19,15 +19,16 @@ echo "Removing existing workspace"
 #mv "$WORKSPACE" "old_$WORKSPACE" && rm -rf "old_$WORKSPACE" &
 
 rm -rf "$WORKSPACE"
+#rm -rf "$WORKSPACE"/partitions/
+#rm -rf "$WORKSPACE"/temp/
 mkdir -p "$WORKSPACE"
 mkdir -p "$URLS_DIR"
 mkdir -p "$PARTITIONS_DIR"
 mkdir -p "$TEMP_DIR"
 
 echo "creating URLs"
-#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=100 --limit=100
-cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=20000
-#./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT"
+#cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=500 --limit=10
+./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=10000
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="pulumi-azure-native.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --limit="$LIMIT" --find="human-id.json"
 #./target/release/pypi-import-test create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=500 --find="$(cat tests/debug.txt)"
@@ -37,6 +38,6 @@ cargo run -q --release -- create-urls "$REPOS_DIRECTORY" "$URLS_DIR" --split=200
 #
 #echo "running partitions"
 export RUST_LOG=warn
-fd . "$URLS_DIR" | shuf | parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/ $PARTITIONS_DIR/ $TEMPLATE_DIR 2>&1 && echo DONE $PARTITIONS_DIR/{/}"
+fd . "$URLS_DIR" | shuf | parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -I{} "./target/release/pypi-import-test from-json {} $TEMP_DIR/ $PARTITIONS_DIR/ $TEMPLATE_DIR 2>&1"
 
 #cargo run -q --release -- from-json $URLS_DIR/chunk_0.json $TEMP_DIR/chunk_0/ $PARTITIONS_DIR/chunk_0/ $TEMPLATE_DIR
