@@ -5,7 +5,7 @@ use crate::archive::{PackageArchive, PackageReader};
 use crate::create_urls::DownloadJob;
 
 use anyhow::Context;
-use git2::{Buf, Commit, FileMode, Index, Mempack, Odb, Oid, Repository, Signature, Time, Tree};
+use git2::{Buf, Commit, FileMode, Index, Mempack, Odb, Oid, Repository, Signature, Time};
 use itertools::Itertools;
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -48,22 +48,21 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
 
     let baseline_tree_oid = repo.treebuilder(None)?.write()?;
 
-
     // I get quite a few DNS errors when using MacOS. I'm not sure why, but we could just avoid any
     // DNS overhead by re-using existing addresses? Fastly uses static anycast IPs, so why do we
     // need to re-resolve them ever?
-    let dns_result: Result<Vec<_>, _> = "files.pythonhosted.org:443".to_socket_addrs().map(Iterator::collect);
+    let dns_result: Result<Vec<_>, _> = "files.pythonhosted.org:443"
+        .to_socket_addrs()
+        .map(Iterator::collect);
     let dns_result = dns_result?;
 
     let agent = ureq::AgentBuilder::new()
         .https_only(true)
         .timeout_read(Duration::from_secs(30))
         .user_agent(APP_USER_AGENT)
-        .resolver(move |addr: &str| {
-            match addr {
-                "files.pythonhosted.org:443" => Ok(dns_result.clone()),
-                _ => panic!("Unexpected address {addr}")
-            }
+        .resolver(move |addr: &str| match addr {
+            "files.pythonhosted.org:443" => Ok(dns_result.clone()),
+            _ => panic!("Unexpected address {addr}"),
         })
         .build();
 
@@ -77,19 +76,23 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                 (agent, output_repo)
             },
             |(agent, repo), job| {
-                let response = agent
-                    .get(job.url.as_str())
-                    .call()
-                    .with_context(|| format!("Error fetching URL {}", job.url))?;
+                let response = match agent.get(job.url.as_str()).call() {
+                    Ok(response) => Ok::<_, anyhow::Error>(response),
+                    Err(ureq::Error::Status(404, _)) => return Ok((job, None)),
+                    Err(e) => Err(e.into()),
+                }
+                .with_context(|| format!("Error fetching URL {}", job.url))?;
+
                 let reader = response.into_reader();
-                let item = extract(&job, &odb, reader, repo, &baseline_tree_oid).with_context(|| {
-                    format!(
-                        "Error processing {} / {} / {}",
-                        job.name,
-                        job.version,
-                        job.package_filename()
-                    )
-                })?;
+                let item =
+                    extract(&job, &odb, reader, repo, &baseline_tree_oid).with_context(|| {
+                        format!(
+                            "Error processing {} / {} / {}",
+                            job.name,
+                            job.version,
+                            job.package_filename()
+                        )
+                    })?;
                 Ok::<_, anyhow::Error>((job, item))
             },
         )
@@ -111,7 +114,7 @@ pub fn extract(
     odb: &Odb,
     reader: PackageReader,
     repo: &mut Repository,
-    baseline_tree_oid: &Oid
+    baseline_tree_oid: &Oid,
 ) -> anyhow::Result<Option<(String, Oid)>> {
     let package_filename = job.package_filename();
     let package_extension = package_filename.rsplit('.').next().unwrap();

@@ -17,8 +17,6 @@ use std::path::PathBuf;
 
 use crate::create_urls::DownloadJob;
 
-use fs_extra::dir::CopyOptions;
-
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -78,7 +76,7 @@ fn main() -> anyhow::Result<()> {
             input_file,
             work_dir,
             finished_dir,
-            template,
+            template: _,
         } => {
             let reader = BufReader::new(File::open(&input_file).unwrap());
             let input: Vec<DownloadJob> = serde_json::from_reader(reader).unwrap();

@@ -70,7 +70,7 @@ pub fn skip_archive_entry(name: &str, size: u64) -> bool {
         return true;
     }
     if name.contains("/venv/") || name.contains("/.venv/") {
-        return true
+        return true;
     }
     false
 }

@@ -1,19 +1,21 @@
-use git2::{BranchType, Commit, Error, ErrorCode, FileMode, ObjectType, Repository, Tree, TreeBuilder, TreeEntry};
+use git2::{FileMode, ObjectType, Repository};
 
 use std::fs;
+use std::io::Write;
 
 use crate::job::CommitMessage;
 use crate::utils::log_timer;
 use anyhow::Context;
 
-use std::path::{Path, PathBuf};
 use git2::build::TreeUpdateBuilder;
+use indicatif::ProgressIterator;
 use itertools::Itertools;
+use std::path::PathBuf;
 
 pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Result<()> {
     let target_repo = Repository::init(&into)?;
     let target_pack_dir = target_repo.path().join("objects").join("pack");
-    let target_head_dir = target_repo.path().join("refs").join("heads");
+    let _target_head_dir = target_repo.path().join("refs").join("heads");
 
     let into_file_name = into.file_name().unwrap().to_str().unwrap();
 
@@ -22,10 +24,10 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     // let mut branches = vec![];
 
-    let mut previous = log_timer("Starting", into_file_name, None);
+    let previous = log_timer("Starting", into_file_name, None);
 
     // Step 1: Create a branch in each target repo and copy the data. this is faster than using a remote.
-    for (idx, repo) in repos.iter().enumerate() {
+    for (_idx, repo) in repos.iter().enumerate() {
         println!("{}", repo.display());
         let repo = match Repository::open(repo) {
             Ok(r) => r,
@@ -37,12 +39,19 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             let item = item?;
             let to_path = target_pack_dir.join(item.file_name());
             if !to_path.exists() {
-                fs::copy(item.path(), &to_path).with_context(|| format!("Error copying {} to {}", item.path().display(), to_path.display()))?;
+                fs::copy(item.path(), &to_path).with_context(|| {
+                    format!(
+                        "Error copying {} to {}",
+                        item.path().display(),
+                        to_path.display()
+                    )
+                })?;
             }
         }
     }
 
     let odb = target_repo.odb()?;
+    let mempack_backend = odb.add_new_mempack_backend(3)?;
 
     let mut commits = vec![];
     odb.foreach(|v| {
@@ -53,23 +62,20 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         true
     })?;
 
-    let mut commits: Vec<_> = commits.into_iter().map(|oid| {
-        target_repo.find_commit(oid).unwrap()
-    }).sorted_by(|c1, c2| {
-        c1.time().cmp(&c2.time())
-    }).collect();
+    let commits: Vec<_> = commits
+        .into_iter()
+        .map(|oid| target_repo.find_commit(oid).unwrap())
+        .sorted_by(|c1, c2| c1.time().cmp(&c2.time()))
+        .collect();
 
     println!("Got commits: {}", commits.len());
 
-    let mut head_tree = target_repo.find_tree(
-        target_repo.treebuilder(None)?.write()?
-    )?;
+    let mut head_tree = target_repo.find_tree(target_repo.treebuilder(None)?.write()?)?;
 
     let mut parent_commit = None;
 
-    for commit in commits {
+    for commit in commits.into_iter().progress() {
         let commit_message = commit.message().unwrap();
-        println!("Message: {commit_message}");
         let message: CommitMessage = serde_json::from_str(commit_message)
             .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
 
@@ -79,47 +85,47 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         let commit_tree = commit.tree()?;
 
         let mut builder = TreeUpdateBuilder::new();
-        builder.upsert(
-            message.path, commit_tree.id(), FileMode::Tree,
-        );
+        builder.upsert(message.path, commit_tree.id(), FileMode::Tree);
         let updated_oid = builder.create_updated(&target_repo, &head_tree).unwrap();
         head_tree = target_repo.find_tree(updated_oid)?;
 
         let parent_commit_oid = match &parent_commit {
             // I don't know how to generalise this :(
-            None => {
-                target_repo.commit(
-                    None,
-                    &commit.author(),
-                    &commit.committer(),
-                    commit_message,
-                    &head_tree,
-                    &[],
-                )?
-            }
-            Some(c) => {
-                target_repo.commit(
-                    None,
-                    &commit.author(),
-                    &commit.committer(),
-                    commit_message,
-                    &head_tree,
-                    &[c],
-                )?
-            }
+            None => target_repo.commit(
+                None,
+                &commit.author(),
+                &commit.committer(),
+                commit_message,
+                &head_tree,
+                &[],
+            )?,
+            Some(c) => target_repo.commit(
+                None,
+                &commit.author(),
+                &commit.committer(),
+                commit_message,
+                &head_tree,
+                &[c],
+            )?,
         };
         parent_commit = Some(target_repo.find_commit(parent_commit_oid)?)
     }
 
-    target_repo.branch(
-        "imported",
-        &parent_commit.unwrap(),
-        true
-    ).unwrap();
+    target_repo
+        .branch("imported", &parent_commit.unwrap(), true)
+        .unwrap();
 
+    let mut buf = git2::Buf::new();
+    mempack_backend.dump(&target_repo, &mut buf).unwrap();
+    mempack_backend.reset().unwrap();
+
+    log_timer("Writing", into_file_name, previous);
+
+    let mut writer = odb.packwriter().unwrap();
+    writer.write_all(&buf).unwrap();
+    writer.commit().unwrap();
 
     // let mut repo_tree_builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
-
 
     // let package_name_tree = match head_tree.get_path(message.name.as_ref()) {
     //     Ok(e) => {
@@ -140,7 +146,6 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     //         panic!("Unknown git error: {e}")
     //     }
     // };
-
 
     // repo_tree_builder.insert(
     //     format!("{new_path}/foo"),
@@ -192,16 +197,6 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     //         let commit = target_repo.find_commit(commit_oid)?;
     //     }
     // }
-
-    // let mut buf = Buf::new();
-    // mempack_backend.dump(&target_repo, &mut buf).unwrap();
-    // mempack_backend.reset().unwrap();
-    //
-    // log_timer("Writing", into_file_name, previous);
-    //
-    // let mut writer = odb.packwriter().unwrap();
-    // writer.write_all(&buf).unwrap();
-    // writer.commit().unwrap();
 
     //
     // let ordered_commits: Vec<_> = ordered_commits
