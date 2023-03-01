@@ -86,7 +86,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                 }
             };
 
-            match response.into_reader().read_to_end(&mut data).with_context(|| format!("Error reading to end for URL {}", url)) {
+            match response.into_reader().read_to_end(&mut data) {
                 Ok(_) => {
                     return Ok(Some(data))
                 }
