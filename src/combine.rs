@@ -62,6 +62,8 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         // println!("Copied {}", repo_path.display());
     }
 
+    std::process::Command::new("git").current_dir(target_repo.path()).args(&["repack", "--max-pack-size=1500m", "-k", "-a", "-d", "-f", "-F", "--threads=8"]).status().unwrap();
+
     let odb = target_repo.odb()?;
 
     let mut commits = vec![];
