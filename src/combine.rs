@@ -80,7 +80,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     println!("Got commits: {}", commits.len());
 
-    let mempack_backend = odb.add_new_mempack_backend(3)?;
+    // let mempack_backend = odb.add_new_mempack_backend(3)?;
 
     let mut head_treebuilder = target_repo.treebuilder(None)?;
     let empty_tree_oid = head_treebuilder.write()?;

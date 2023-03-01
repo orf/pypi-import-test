@@ -6,6 +6,7 @@ cargo build --release
 export WORKSPACE="$1"
 export INPUT_DIR="$2"
 export CONCURRENCY="$3"
+export TEMPLATE_DIR="$4"
 
 export LIMIT="5000"
 
@@ -14,7 +15,7 @@ export INDEX_FILE="$WORKSPACE"/index
 export PARTITIONS_DIR="$WORKSPACE"/partitions/
 export TEMP_DIR="$WORKSPACE"/temp/
 
-echo "Removing existing workspace"
+#echo "Removing existing workspace"
 #mv "$WORKSPACE" "old_$WORKSPACE" && rm -rf "old_$WORKSPACE" &
 
 #rm -rf "$WORKSPACE"
