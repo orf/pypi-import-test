@@ -73,6 +73,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
             let response = match agent.get(url.as_str()).call() {
                 Ok(response) => Ok::<_, anyhow::Error>(response),
                 Err(ureq::Error::Status(404, _)) => return Ok(None),
+                Err(ureq::Error::Status(416, _)) => return Ok(None),
                 Err(e) => Err(e.into()),
             }
                 .with_context(|| format!("Error fetching URL {}", url))?;
