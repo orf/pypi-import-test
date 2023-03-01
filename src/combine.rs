@@ -1,4 +1,4 @@
-use git2::{Error, FileMode, ObjectType, Oid, Repository, Tree, TreeBuilder, TreeEntry, TreeWalkMode};
+use git2::{ObjectType, Repository};
 
 use std::fs;
 use std::io::Write;
@@ -7,10 +7,10 @@ use crate::job::CommitMessage;
 use crate::utils::log_timer;
 use anyhow::Context;
 
-use git2::build::TreeUpdateBuilder;
+
 use indicatif::{ProgressBar, ProgressIterator};
-use itertools::{Itertools, Position};
-use std::path::{Path, PathBuf};
+use itertools::{Itertools};
+use std::path::{PathBuf};
 use std::time::Duration;
 
 const FILE_MODE_TREE: i32 = 0o040000;
@@ -82,7 +82,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     // let mempack_backend = odb.add_new_mempack_backend(3)?;
 
-    let mut head_treebuilder = target_repo.treebuilder(None)?;
+    let head_treebuilder = target_repo.treebuilder(None)?;
     let empty_tree_oid = head_treebuilder.write()?;
     let mut head_tree_oid = empty_tree_oid;
     // let mut head_tree = target_repo.find_tree(empty_tree_oid)?;
@@ -103,7 +103,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
         let commit_tree = commit.tree()?;
 
-        let mut head_tree = target_repo.find_tree(head_tree_oid)?;
+        let head_tree = target_repo.find_tree(head_tree_oid)?;
 
 
         let (root, package_name, upload_name) = message.path.components().map(|c| c.as_os_str().to_str().unwrap()).collect_tuple().unwrap();
@@ -125,7 +125,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
 
         let upload_code_tree = match head_tree.get_path(
-            &message.path.parent().unwrap()
+            message.path.parent().unwrap()
         ) {
             Ok(entry) => {
                 let parent_tree = target_repo.find_tree(entry.id()).unwrap();
@@ -133,7 +133,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
                 builder.insert(upload_name, commit_tree.id(), FILE_MODE_TREE).unwrap();
                 target_repo.find_tree(builder.write().unwrap()).unwrap()
             }
-            Err(e) => {
+            Err(_e) => {
                 let mut builder = target_repo.treebuilder(None).unwrap();
                 builder.insert(upload_name, commit_tree.id(), FILE_MODE_TREE).unwrap();
                 target_repo.find_tree(builder.write().unwrap()).unwrap()
@@ -141,7 +141,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         };
 
         let package_name_tree = match head_tree.get_path(
-            &message.path.parent().unwrap().parent().unwrap()
+            message.path.parent().unwrap().parent().unwrap()
         ) {
             Ok(entry) => {
                 let parent_tree = target_repo.find_tree(entry.id()).unwrap();
@@ -149,7 +149,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
                 builder.insert(package_name, upload_code_tree.id(), FILE_MODE_TREE).unwrap();
                 target_repo.find_tree(builder.write().unwrap()).unwrap()
             }
-            Err(e) => {
+            Err(_e) => {
                 let mut builder = target_repo.treebuilder(None).unwrap();
                 builder.insert(package_name, upload_code_tree.id(), FILE_MODE_TREE).unwrap();
                 target_repo.find_tree(builder.write().unwrap()).unwrap()
