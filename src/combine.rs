@@ -12,6 +12,7 @@ use indicatif::{ProgressBar, ProgressIterator};
 use itertools::{Itertools};
 use std::path::{PathBuf};
 use std::time::Duration;
+use log::warn;
 
 const FILE_MODE_TREE: i32 = 0o040000;
 
@@ -33,7 +34,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         let repo = match Repository::open(repo_path) {
             Ok(r) => r,
             Err(e) => {
-                println!("Skipping {}: {e}", repo_path.display());
+                warn!("Skipping {}: {e}", repo_path.display());
                 continue;
             }
         };
