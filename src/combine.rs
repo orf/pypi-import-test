@@ -58,7 +58,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
                 })?;
             }
         }
-        println!("Copied {}", repo_path.display());
+        // println!("Copied {}", repo_path.display());
     }
 
     let odb = target_repo.odb()?;
@@ -78,9 +78,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         .sorted_by(|c1, c2| c1.time().cmp(&c2.time()))
         .collect();
 
-    println!("Got commits: {}", commits.len());
-
-    // let mempack_backend = odb.add_new_mempack_backend(3)?;
+    let mempack_backend = odb.add_new_mempack_backend(3)?;
 
     let head_treebuilder = target_repo.treebuilder(None)?;
     let empty_tree_oid = head_treebuilder.write()?;
@@ -88,15 +86,19 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     // let mut head_tree = target_repo.find_tree(empty_tree_oid)?;
 
     let mut parent_commit = None;
-
-    let pbar = ProgressBar::new(commits.len() as u64);
+    let total_commits = commits.len();
+    let pbar = ProgressBar::new(total_commits as u64);
     pbar.set_message("Parsing");
     pbar.set_style(
         indicatif::ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg} ({per_sec})").unwrap()
     );
     pbar.enable_steady_tick(Duration::from_secs(1));
 
-    for commit in commits.into_iter().progress_with(pbar) {
+    for commit in commits.into_iter() {
+        pbar.inc(1);
+        if pbar.position() % 1_000 == 0 {
+            println!("Done {}/{}", pbar.position(), total_commits);
+        }
         let commit_message = commit.message().unwrap();
         let message: CommitMessage = serde_json::from_str(commit_message)
             .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
@@ -279,15 +281,15 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         .branch("imported", &parent_commit.unwrap(), true)
         .unwrap();
     println!("Writing...");
-    // let mut buf = git2::Buf::new();
-    // mempack_backend.dump(&target_repo, &mut buf).unwrap();
-    // mempack_backend.reset().unwrap();
+    let mut buf = git2::Buf::new();
+    mempack_backend.dump(&target_repo, &mut buf).unwrap();
+    mempack_backend.reset().unwrap();
     //
     // log_timer("Writing", into_file_name, previous);
     //
-    // let mut writer = odb.packwriter().unwrap();
-    // writer.write_all(&buf).unwrap();
-    // writer.commit().unwrap();
+    let mut writer = odb.packwriter().unwrap();
+    writer.write_all(&buf).unwrap();
+    writer.commit().unwrap();
 
     // let mut repo_tree_builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
 

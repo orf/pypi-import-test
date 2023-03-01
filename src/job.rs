@@ -91,12 +91,12 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                     return Ok(Some(data))
                 }
                 Err(e) => {
-                    warn!("Skipping {url} due to error {e}");
+                    warn!("{url} failed: {e}");
                     continue
                 }
             }
         }
-
+        warn!("Skipping {url} due to 5 errors");
         Ok(None)
     }
 
