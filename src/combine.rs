@@ -1,4 +1,4 @@
-use git2::{ObjectType, Repository};
+use git2::{Mempack, ObjectType, Repository};
 
 use std::fs;
 use std::io::Write;
@@ -78,7 +78,8 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         .sorted_by(|c1, c2| c1.time().cmp(&c2.time()))
         .collect();
 
-    let mempack_backend = odb.add_new_mempack_backend(3)?;
+    let mempack_backend = Some(odb.add_new_mempack_backend(3)?);
+    // let mempack_backend: Option<Mempack> = None;
 
     let head_treebuilder = target_repo.treebuilder(None)?;
     let empty_tree_oid = head_treebuilder.write()?;
@@ -163,98 +164,6 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         head_tree_oid = builder.write().unwrap();
         let head_tree = target_repo.find_tree(head_tree_oid).unwrap();
 
-        // let root_tree = match head_tree.get_name(root) {
-        //     None => {
-        //         let mut builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
-        //         println!("inserting new tree into root {root}");
-        //         builder.insert(root, empty_tree_oid, FILE_MODE_TREE).unwrap();
-        //         let sub_tree_oid = builder.write().unwrap();
-        //         target_repo.find_tree(sub_tree_oid).unwrap()
-        //     }
-        //     Some(t) => {
-        //         println!("re-using tree");
-        //         target_repo.find_tree(t.id()).unwrap()
-        //     }
-        // };
-
-        // let package_tree = match root_tree.get_name(package_name) {
-        //     None => {
-        //         println!("inserting new tree into package {package_name}");
-        //         let mut builder = target_repo.treebuilder(Some(&root_tree)).unwrap();
-        //         builder.insert(package_name, empty_tree_oid, FILE_MODE_TREE).unwrap();
-        //         let sub_tree_oid = builder.write().unwrap();
-        //         target_repo.find_tree(sub_tree_oid).unwrap()
-        //     }
-        //     Some(t) => {
-        //         println!("re-using tree");
-        //         target_repo.find_tree(t.id()).unwrap()
-        //     }
-        // };
-        // println!("Inserting into {upload_name}");
-        // let mut upload_builder = target_repo.treebuilder(Some(&package_tree)).unwrap();
-        // upload_builder.insert(upload_name, commit_tree.id(), FILE_MODE_TREE).unwrap();
-        // let upload_tree_oid = upload_builder.write().unwrap();
-        //
-        // let mut package_tree_builder = target_repo.treebuilder(Some(&package_tree)).unwrap();
-        // package_tree_builder.insert(upload_name, upload_tree_oid, FILE_MODE_TREE).unwrap();
-        // let package_tree_oid = package_tree_builder.write().unwrap();
-        //
-        // let mut root_tree_builder = target_repo.treebuilder(Some(&root_tree)).unwrap();
-        // root_tree_builder.insert(root, package_tree_oid, FILE_MODE_TREE).unwrap();
-        // let root_tree_oid = root_tree_builder.write().unwrap();
-
-        // head_tree = target_repo.find_tree(root_tree_oid).unwrap();
-        //
-        // for item in head_tree.iter() {
-        //     println!("root tree entry: {}", item.name().unwrap());
-        // }
-        //
-        // for item in target_repo.find_tree(package_tree_oid).unwrap().iter() {
-        //     println!("package tree entry: {}", item.name().unwrap());
-        // }
-        //
-        // for item in target_repo.find_tree(upload_tree_oid).unwrap().iter() {
-        //     println!("upload tree entry: {}", item.name().unwrap());
-        // }
-
-        // head_tree = target_repo.find_tree(upload_tree_oid).unwrap();
-
-        // let package_name_tree = target_repo.find_tree(sub_trees[1]).unwrap();
-        // let mut package_name_tree_builder = target_repo.treebuilder(Some(&package_name_tree)).unwrap();
-        // let package_name_tree_oid = package_name_tree_builder.insert(
-        //     file_name,
-        //     commit_tree.id(),
-        //     FILE_MODE_TREE
-        // ).unwrap().id();
-        // let new_package_directory_tree = target_repo.find_tree(package_name_tree_oid).unwrap();
-        //
-        // let root_package_tree =
-        // let package_dir_tree_builder = target_repo.treebuilder(sub_trees[0])
-
-        // for item in sub_trees.into_iter().rev().with_position() {
-        //     match item {
-        //         Position::First(code_tree) => {
-        //
-        //         }
-        //         Position::Middle(package_tree) => {}
-        //         Position::Last(root_tree) => {}
-        //         Position::Only(_) => {
-        //             unreachable!("empty item!")
-        //         }
-        //     }
-        // }
-
-        // return Ok(());
-        // let last_tree = target_repo.find_tree(sub_trees[2]).unwrap();
-        // let last_tree_builder = target_repo.treebuilder(Some(&last_tree)).unwrap();
-
-        //
-        // let mut builder = TreeUpdateBuilder::new();
-        // builder.upsert(message.path, commit_tree.id(), FileMode::Tree);
-        // let updated_oid = builder.create_updated(&target_repo, &head_tree).unwrap();
-        // head_tree = target_repo.find_tree(updated_oid)?;
-        //
-
         let parent_commit_oid = match &parent_commit {
             // I don't know how to generalise this :(
             None => target_repo.commit(
@@ -280,18 +189,16 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     target_repo
         .branch("imported", &parent_commit.unwrap(), true)
         .unwrap();
-    println!("Writing...");
-    let mut buf = git2::Buf::new();
-    mempack_backend.dump(&target_repo, &mut buf).unwrap();
-    mempack_backend.reset().unwrap();
-    //
-    // log_timer("Writing", into_file_name, previous);
-    //
-    let mut writer = odb.packwriter().unwrap();
-    writer.write_all(&buf).unwrap();
-    writer.commit().unwrap();
 
-    // let mut repo_tree_builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
+    if let Some(mempack_backend) = mempack_backend {
+        println!("Writing...");
+        let mut buf = git2::Buf::new();
+        mempack_backend.dump(&target_repo, &mut buf).unwrap();
+        let mut writer = odb.packwriter().unwrap();
+        writer.write_all(&buf).unwrap();
+        writer.commit().unwrap();
+    }
+    // println!("Done {}", target_repo.path().display());
 
     // let package_name_tree = match head_tree.get_path(message.name.as_ref()) {
     //     Ok(e) => {
