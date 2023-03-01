@@ -18,6 +18,7 @@ const FILE_MODE_TREE: i32 = 0o040000;
 pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Result<()> {
     git2::opts::strict_object_creation(false);
     git2::opts::strict_hash_verification(false);
+    git2::opts::enable_caching(false);
 
     let target_repo = Repository::init(&into)?;
     let target_pack_dir = target_repo.path().join("objects").join("pack");
