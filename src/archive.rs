@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 
-use std::io::Read;
+use std::io::{Cursor, Read};
 
 use bzip2::read::BzDecoder;
 
@@ -11,7 +11,7 @@ use git2::{Odb, Oid};
 use tar::{Archive, Entries};
 use zip::read::read_zipfile_from_stream;
 
-pub type PackageReader = Box<dyn Read>;
+pub type PackageReader = Cursor<Vec<u8>>;
 
 pub enum PackageArchive {
     Zip(PackageReader),

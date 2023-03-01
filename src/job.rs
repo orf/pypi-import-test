@@ -10,8 +10,8 @@ use itertools::Itertools;
 use log::error;
 use serde::{Deserialize, Serialize};
 
-use std::fs;
-use std::io::Write;
+use std::{fs, io};
+use std::io::{Read, Write};
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -82,8 +82,17 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                     Err(e) => Err(e.into()),
                 }
                 .with_context(|| format!("Error fetching URL {}", job.url))?;
+                let mut data = match response.header("Content-Length") {
+                    None => {
+                        vec![]
+                    }
+                    Some(v) => {
+                        Vec::with_capacity(v.parse()?)
+                    }
+                };
+                response.into_reader().read_to_end(&mut data)?;
+                let reader = io::Cursor::new(data);
 
-                let reader = response.into_reader();
                 let item =
                     extract(&job, &odb, reader, repo, &baseline_tree_oid).with_context(|| {
                         format!(

@@ -8,9 +8,10 @@ use crate::utils::log_timer;
 use anyhow::Context;
 
 use git2::build::TreeUpdateBuilder;
-use indicatif::ProgressIterator;
+use indicatif::{ProgressBar, ProgressIterator};
 use itertools::Itertools;
 use std::path::PathBuf;
+use std::time::Duration;
 
 pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Result<()> {
     let target_repo = Repository::init(&into)?;
@@ -24,14 +25,18 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     // let mut branches = vec![];
 
-    let previous = log_timer("Starting", into_file_name, None);
+    let _previous = log_timer("Starting", into_file_name, None);
+
 
     // Step 1: Create a branch in each target repo and copy the data. this is faster than using a remote.
-    for (_idx, repo) in repos.iter().enumerate() {
-        println!("{}", repo.display());
-        let repo = match Repository::open(repo) {
+    for (_idx, repo_path) in repos.iter().enumerate() {
+        println!("{}", repo_path.display());
+        let repo = match Repository::open(repo_path) {
             Ok(r) => r,
-            Err(_) => continue,
+            Err(e) => {
+                println!("Skipping {}: {e}", repo_path.display());
+                continue
+            },
         };
 
         let pack_dir = repo.path().join("objects").join("pack");
@@ -48,10 +53,10 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
                 })?;
             }
         }
+        println!("Copied {}", repo_path.display());
     }
 
     let odb = target_repo.odb()?;
-    let mempack_backend = odb.add_new_mempack_backend(3)?;
 
     let mut commits = vec![];
     odb.foreach(|v| {
@@ -70,11 +75,20 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     println!("Got commits: {}", commits.len());
 
+    // let mempack_backend = odb.add_new_mempack_backend(3)?;
+
     let mut head_tree = target_repo.find_tree(target_repo.treebuilder(None)?.write()?)?;
 
     let mut parent_commit = None;
 
-    for commit in commits.into_iter().progress() {
+    let pbar = ProgressBar::new(commits.len() as u64);
+        pbar.set_message("Parsing");
+    pbar.set_style(
+        indicatif::ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg} ({per_sec})").unwrap()
+    );
+    pbar.enable_steady_tick(Duration::from_secs(1));
+
+    for commit in commits.into_iter().progress_with(pbar) {
         let commit_message = commit.message().unwrap();
         let message: CommitMessage = serde_json::from_str(commit_message)
             .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
@@ -108,22 +122,22 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
                 &[c],
             )?,
         };
-        parent_commit = Some(target_repo.find_commit(parent_commit_oid)?)
+        parent_commit = Some(target_repo.find_commit(parent_commit_oid)?);
     }
 
     target_repo
         .branch("imported", &parent_commit.unwrap(), true)
         .unwrap();
-
-    let mut buf = git2::Buf::new();
-    mempack_backend.dump(&target_repo, &mut buf).unwrap();
-    mempack_backend.reset().unwrap();
-
-    log_timer("Writing", into_file_name, previous);
-
-    let mut writer = odb.packwriter().unwrap();
-    writer.write_all(&buf).unwrap();
-    writer.commit().unwrap();
+    println!("Writing...");
+    // let mut buf = git2::Buf::new();
+    // mempack_backend.dump(&target_repo, &mut buf).unwrap();
+    // mempack_backend.reset().unwrap();
+    //
+    // log_timer("Writing", into_file_name, previous);
+    //
+    // let mut writer = odb.packwriter().unwrap();
+    // writer.write_all(&buf).unwrap();
+    // writer.commit().unwrap();
 
     // let mut repo_tree_builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
 

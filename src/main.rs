@@ -1,3 +1,5 @@
+extern crate core;
+
 mod archive;
 mod combine;
 mod create_urls;

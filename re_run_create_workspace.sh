@@ -36,6 +36,6 @@ echo "Removing existing workspace"
 #
 #echo "running partitions"
 export RUST_LOG=warn
-ls "$WORKSPACE"/temp_3 | shuf | parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -I{} "./target/release/pypi-import-test from-json $URLS_DIR/{}.json $TEMP_DIR/ $PARTITIONS_DIR/ $TEMPLATE_DIR 2>&1"
+ls "$WORKSPACE"/temp_4 | shuf | parallel -u --progress --joblog=job.log --eta -P "$CONCURRENCY" -I{} "./target/release/pypi-import-test from-json $URLS_DIR/{}.json $TEMP_DIR/ $PARTITIONS_DIR/ $TEMPLATE_DIR 2>&1"
 
 #cargo run -q --release -- from-json $URLS_DIR/chunk_0.json $TEMP_DIR/chunk_0/ $PARTITIONS_DIR/chunk_0/ $TEMPLATE_DIR
