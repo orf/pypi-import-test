@@ -78,8 +78,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         .sorted_by(|c1, c2| c1.time().cmp(&c2.time()))
         .collect();
 
-    let mempack_backend = Some(odb.add_new_mempack_backend(3)?);
-    // let mempack_backend: Option<Mempack> = None;
+    odb.add_new_mempack_backend(3)?;
 
     let head_treebuilder = target_repo.treebuilder(None)?;
     let empty_tree_oid = head_treebuilder.write()?;
@@ -95,6 +94,8 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     );
     pbar.enable_steady_tick(Duration::from_secs(1));
 
+    let mut pack_builder = target_repo.packbuilder().unwrap();
+
     for commit in commits.into_iter() {
         pbar.inc(1);
         if pbar.position() % 1_000 == 0 {
@@ -107,7 +108,6 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         let commit_tree = commit.tree()?;
 
         let head_tree = target_repo.find_tree(head_tree_oid)?;
-
 
         let (root, package_name, upload_name) = message.path.components().map(|c| c.as_os_str().to_str().unwrap()).collect_tuple().unwrap();
 
@@ -143,6 +143,11 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             }
         };
 
+        pack_builder.insert_object(
+            upload_code_tree.id(),
+            None,
+        ).unwrap();
+
         let package_name_tree = match head_tree.get_path(
             message.path.parent().unwrap().parent().unwrap()
         ) {
@@ -159,9 +164,20 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             }
         };
 
+        pack_builder.insert_object(
+            package_name_tree.id(),
+            None,
+        ).unwrap();
+
         let mut builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
         builder.insert(root, package_name_tree.id(), FILE_MODE_TREE).unwrap();
         head_tree_oid = builder.write().unwrap();
+
+        pack_builder.insert_object(
+            head_tree_oid,
+            None,
+        ).unwrap();
+
         let head_tree = target_repo.find_tree(head_tree_oid).unwrap();
 
         let parent_commit_oid = match &parent_commit {
@@ -184,20 +200,36 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             )?,
         };
         parent_commit = Some(target_repo.find_commit(parent_commit_oid)?);
+
+        pack_builder.insert_object(
+            parent_commit_oid,
+            None,
+        ).unwrap();
     }
 
     target_repo
         .branch("imported", &parent_commit.unwrap(), true)
         .unwrap();
 
-    if let Some(mempack_backend) = mempack_backend {
-        println!("Writing...");
-        let mut buf = git2::Buf::new();
-        mempack_backend.dump(&target_repo, &mut buf).unwrap();
-        let mut writer = odb.packwriter().unwrap();
-        writer.write_all(&buf).unwrap();
-        writer.commit().unwrap();
-    }
+    let threads_used = pack_builder.set_threads(6);
+    println!("Writing {} objects with {threads_used} threads...", pack_builder.object_count());
+
+    let mut buf = git2::Buf::new();
+    let mut ticks = 0;
+    pack_builder.set_progress_callback(move |x, y, z| {
+        ticks += 1;
+        if ticks == 5 {
+            println!("{x:?} - {y} / {z}");
+            ticks = 0;
+        }
+        true
+    }).unwrap();
+    pack_builder.write_buf(&mut buf).unwrap();
+    // println!("Written! {}", pack_builder.name().unwrap());
+    // mempack_backend.dump(&target_repo, &mut buf).unwrap();
+    let mut writer = odb.packwriter().unwrap();
+    writer.write_all(&buf).unwrap();
+    writer.commit().unwrap();
     // println!("Done {}", target_repo.path().display());
 
     // let package_name_tree = match head_tree.get_path(message.name.as_ref()) {
