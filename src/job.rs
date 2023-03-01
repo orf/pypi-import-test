@@ -90,7 +90,7 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                         Vec::with_capacity(v.parse()?)
                     }
                 };
-                response.into_reader().read_to_end(&mut data)?;
+                response.into_reader().read_to_end(&mut data).with_context(|| format!("Error reading to end for URL {}", job.url))?;
                 let reader = io::Cursor::new(data);
 
                 let item =

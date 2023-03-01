@@ -1,4 +1,4 @@
-use git2::{FileMode, ObjectType, Repository};
+use git2::{Error, FileMode, ObjectType, Oid, Repository, Tree, TreeBuilder, TreeEntry, TreeWalkMode};
 
 use std::fs;
 use std::io::Write;
@@ -9,11 +9,16 @@ use anyhow::Context;
 
 use git2::build::TreeUpdateBuilder;
 use indicatif::{ProgressBar, ProgressIterator};
-use itertools::Itertools;
-use std::path::PathBuf;
+use itertools::{Itertools, Position};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+const FILE_MODE_TREE: i32 = 0o040000;
+
 pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Result<()> {
+    git2::opts::strict_object_creation(false);
+    git2::opts::strict_hash_verification(false);
+
     let target_repo = Repository::init(&into)?;
     let target_pack_dir = target_repo.path().join("objects").join("pack");
     let _target_head_dir = target_repo.path().join("refs").join("heads");
@@ -35,8 +40,8 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             Ok(r) => r,
             Err(e) => {
                 println!("Skipping {}: {e}", repo_path.display());
-                continue
-            },
+                continue;
+            }
         };
 
         let pack_dir = repo.path().join("objects").join("pack");
@@ -75,14 +80,17 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     println!("Got commits: {}", commits.len());
 
-    // let mempack_backend = odb.add_new_mempack_backend(3)?;
+    let mempack_backend = odb.add_new_mempack_backend(3)?;
 
-    let mut head_tree = target_repo.find_tree(target_repo.treebuilder(None)?.write()?)?;
+    let mut head_treebuilder = target_repo.treebuilder(None)?;
+    let empty_tree_oid = head_treebuilder.write()?;
+    let mut head_tree_oid = empty_tree_oid;
+    // let mut head_tree = target_repo.find_tree(empty_tree_oid)?;
 
     let mut parent_commit = None;
 
     let pbar = ProgressBar::new(commits.len() as u64);
-        pbar.set_message("Parsing");
+    pbar.set_message("Parsing");
     pbar.set_style(
         indicatif::ProgressStyle::with_template("{wide_bar} {pos}/{len} {msg} ({per_sec})").unwrap()
     );
@@ -93,15 +101,157 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         let message: CommitMessage = serde_json::from_str(commit_message)
             .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
 
-        // let new_path = format!("{}/{}", message.name, message.file);
-
-        // let tree_path = Path::new(&message.path);
         let commit_tree = commit.tree()?;
 
-        let mut builder = TreeUpdateBuilder::new();
-        builder.upsert(message.path, commit_tree.id(), FileMode::Tree);
-        let updated_oid = builder.create_updated(&target_repo, &head_tree).unwrap();
-        head_tree = target_repo.find_tree(updated_oid)?;
+        let mut head_tree = target_repo.find_tree(head_tree_oid)?;
+
+
+        let (root, package_name, upload_name) = message.path.components().map(|c| c.as_os_str().to_str().unwrap()).collect_tuple().unwrap();
+
+        // match head_treebuilder.get(package_name).unwrap() {
+        //     None => {
+        //         let mut builder = target_repo.treebuilder(None).unwrap();
+        //         builder.insert(upload_name, commit_tree.id(), FILE_MODE_TREE).unwrap();
+        //         head_treebuilder.insert(
+        //             package_name,
+        //             builder.write().unwrap(),
+        //             FILE_MODE_TREE
+        //         ).unwrap();
+        //     }
+        //     Some(package_tree_item) => {
+        //
+        //     }
+        // }
+
+
+        let upload_code_tree = match head_tree.get_path(
+            &message.path.parent().unwrap()
+        ) {
+            Ok(entry) => {
+                let parent_tree = target_repo.find_tree(entry.id()).unwrap();
+                let mut builder = target_repo.treebuilder(Some(&parent_tree)).unwrap();
+                builder.insert(upload_name, commit_tree.id(), FILE_MODE_TREE).unwrap();
+                target_repo.find_tree(builder.write().unwrap()).unwrap()
+            }
+            Err(e) => {
+                let mut builder = target_repo.treebuilder(None).unwrap();
+                builder.insert(upload_name, commit_tree.id(), FILE_MODE_TREE).unwrap();
+                target_repo.find_tree(builder.write().unwrap()).unwrap()
+            }
+        };
+
+        let package_name_tree = match head_tree.get_path(
+            &message.path.parent().unwrap().parent().unwrap()
+        ) {
+            Ok(entry) => {
+                let parent_tree = target_repo.find_tree(entry.id()).unwrap();
+                let mut builder = target_repo.treebuilder(Some(&parent_tree)).unwrap();
+                builder.insert(package_name, upload_code_tree.id(), FILE_MODE_TREE).unwrap();
+                target_repo.find_tree(builder.write().unwrap()).unwrap()
+            }
+            Err(e) => {
+                let mut builder = target_repo.treebuilder(None).unwrap();
+                builder.insert(package_name, upload_code_tree.id(), FILE_MODE_TREE).unwrap();
+                target_repo.find_tree(builder.write().unwrap()).unwrap()
+            }
+        };
+
+        let mut builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
+        builder.insert(root, package_name_tree.id(), FILE_MODE_TREE).unwrap();
+        head_tree_oid = builder.write().unwrap();
+        let head_tree = target_repo.find_tree(head_tree_oid).unwrap();
+
+        // let root_tree = match head_tree.get_name(root) {
+        //     None => {
+        //         let mut builder = target_repo.treebuilder(Some(&head_tree)).unwrap();
+        //         println!("inserting new tree into root {root}");
+        //         builder.insert(root, empty_tree_oid, FILE_MODE_TREE).unwrap();
+        //         let sub_tree_oid = builder.write().unwrap();
+        //         target_repo.find_tree(sub_tree_oid).unwrap()
+        //     }
+        //     Some(t) => {
+        //         println!("re-using tree");
+        //         target_repo.find_tree(t.id()).unwrap()
+        //     }
+        // };
+
+        // let package_tree = match root_tree.get_name(package_name) {
+        //     None => {
+        //         println!("inserting new tree into package {package_name}");
+        //         let mut builder = target_repo.treebuilder(Some(&root_tree)).unwrap();
+        //         builder.insert(package_name, empty_tree_oid, FILE_MODE_TREE).unwrap();
+        //         let sub_tree_oid = builder.write().unwrap();
+        //         target_repo.find_tree(sub_tree_oid).unwrap()
+        //     }
+        //     Some(t) => {
+        //         println!("re-using tree");
+        //         target_repo.find_tree(t.id()).unwrap()
+        //     }
+        // };
+        // println!("Inserting into {upload_name}");
+        // let mut upload_builder = target_repo.treebuilder(Some(&package_tree)).unwrap();
+        // upload_builder.insert(upload_name, commit_tree.id(), FILE_MODE_TREE).unwrap();
+        // let upload_tree_oid = upload_builder.write().unwrap();
+        //
+        // let mut package_tree_builder = target_repo.treebuilder(Some(&package_tree)).unwrap();
+        // package_tree_builder.insert(upload_name, upload_tree_oid, FILE_MODE_TREE).unwrap();
+        // let package_tree_oid = package_tree_builder.write().unwrap();
+        //
+        // let mut root_tree_builder = target_repo.treebuilder(Some(&root_tree)).unwrap();
+        // root_tree_builder.insert(root, package_tree_oid, FILE_MODE_TREE).unwrap();
+        // let root_tree_oid = root_tree_builder.write().unwrap();
+
+        // head_tree = target_repo.find_tree(root_tree_oid).unwrap();
+        //
+        // for item in head_tree.iter() {
+        //     println!("root tree entry: {}", item.name().unwrap());
+        // }
+        //
+        // for item in target_repo.find_tree(package_tree_oid).unwrap().iter() {
+        //     println!("package tree entry: {}", item.name().unwrap());
+        // }
+        //
+        // for item in target_repo.find_tree(upload_tree_oid).unwrap().iter() {
+        //     println!("upload tree entry: {}", item.name().unwrap());
+        // }
+
+        // head_tree = target_repo.find_tree(upload_tree_oid).unwrap();
+
+        // let package_name_tree = target_repo.find_tree(sub_trees[1]).unwrap();
+        // let mut package_name_tree_builder = target_repo.treebuilder(Some(&package_name_tree)).unwrap();
+        // let package_name_tree_oid = package_name_tree_builder.insert(
+        //     file_name,
+        //     commit_tree.id(),
+        //     FILE_MODE_TREE
+        // ).unwrap().id();
+        // let new_package_directory_tree = target_repo.find_tree(package_name_tree_oid).unwrap();
+        //
+        // let root_package_tree =
+        // let package_dir_tree_builder = target_repo.treebuilder(sub_trees[0])
+
+        // for item in sub_trees.into_iter().rev().with_position() {
+        //     match item {
+        //         Position::First(code_tree) => {
+        //
+        //         }
+        //         Position::Middle(package_tree) => {}
+        //         Position::Last(root_tree) => {}
+        //         Position::Only(_) => {
+        //             unreachable!("empty item!")
+        //         }
+        //     }
+        // }
+
+        // return Ok(());
+        // let last_tree = target_repo.find_tree(sub_trees[2]).unwrap();
+        // let last_tree_builder = target_repo.treebuilder(Some(&last_tree)).unwrap();
+
+        //
+        // let mut builder = TreeUpdateBuilder::new();
+        // builder.upsert(message.path, commit_tree.id(), FileMode::Tree);
+        // let updated_oid = builder.create_updated(&target_repo, &head_tree).unwrap();
+        // head_tree = target_repo.find_tree(updated_oid)?;
+        //
 
         let parent_commit_oid = match &parent_commit {
             // I don't know how to generalise this :(
