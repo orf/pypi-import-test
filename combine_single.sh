@@ -8,4 +8,4 @@ git init -q "$LOCATION"
 
 ./target/release/pypi-import-test merge-branches "$LOCATION" "${args[@]}" | git -C "$LOCATION" fast-import
 
-git -C "$LOCATION" gc --aggressive --prune=now
+#git -C "$LOCATION" gc --aggressive --prune=now
