@@ -5,10 +5,11 @@ cargo build --release
 
 export COMBINED_DIR="$1"
 export TARGET_DIR="$2"
+export PROCESSES="$3"
 export RUST_LOG=warn
 
 export RAYON_NUM_THREADS="25"
-fd -a . "$TARGET_DIR" | head -n10 | sort | parallel -u --progress --eta --xargs -N10 -P2 -I@ "./combine_single.sh $COMBINED_DIR/{#} @ 2>&1"
+fd -a . "$TARGET_DIR" | head -n10 | sort | parallel -u --progress --eta --xargs -N10 -P"$PROCESSES" -I@ "./combine_single.sh $COMBINED_DIR/{#} @ 2>&1"
 
 #
 #export COMBINED_DIR="$1"
