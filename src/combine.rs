@@ -18,12 +18,20 @@ use std::time::Duration;
 use tinytemplate::TinyTemplate;
 use url::Url;
 
-#[derive(serde::Serialize)]
-pub struct IndexEntry {
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct JsonIndexEntry {
     pub name: String,
     pub version: String,
     pub path: PathBuf,
     pub uploaded_on: DateTime<Utc>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct JsonIndex {
+    pub url: Url,
+    pub earliest_release: DateTime<Utc>,
+    pub latest_release: DateTime<Utc>,
+    pub entries: HashMap<String, Vec<JsonIndexEntry>>,
 }
 
 const FILE_MODE_TREE: i32 = 0o040000;
@@ -88,7 +96,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     let total_commits = commits.len();
 
-    let mut packages_index: HashMap<String, Vec<_>> = HashMap::new();
+    let mut packages_index: HashMap<String, Vec<JsonIndexEntry>> = HashMap::new();
 
     println!("reset refs/heads/import");
 
@@ -149,7 +157,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             NaiveDateTime::from_timestamp_opt(commit.time().seconds(), 0).unwrap(),
             Utc,
         );
-        let entry = IndexEntry {
+        let entry = JsonIndexEntry {
             name: message.name,
             version: message.version,
             path: message.path,
@@ -190,6 +198,10 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         repo_url: Url,
     }
 
+    let repo_url: Url = format!(
+        "https://github.com/pypi-data/pypi-code-{repository_partition_index}"
+    ).parse()?;
+
     let mut tt = TinyTemplate::new();
     tt.add_template("readme", include_str!("index_template.md"))?;
     let readme = tt.render(
@@ -199,14 +211,16 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             last_release: max_release_time.date_naive(),
             total_projects,
             total_releases,
-            repo_url: format!(
-                "https://github.com/pypi-data/pypi-code-{repository_partition_index}"
-            )
-            .parse()?,
+            repo_url: repo_url.clone(),
             table: top_projects_by_count,
         },
     )?;
-    let index_json = serde_json::to_string(&packages_index).unwrap();
+    let index_json = serde_json::to_string(&JsonIndex {
+        url: repo_url,
+        earliest_release: min_release_time,
+        latest_release: max_release_time,
+        entries: packages_index,
+    }).unwrap();
 
     println!("reset refs/heads/main");
 
