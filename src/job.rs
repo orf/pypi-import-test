@@ -4,17 +4,17 @@ use std::hash::{Hash, Hasher};
 use crate::archive::{PackageArchive, PackageReader};
 use crate::create_urls::DownloadJob;
 
-use anyhow::{Context};
+use anyhow::Context;
 use git2::{Buf, Commit, FileMode, Index, Mempack, Odb, Oid, Repository, Signature, Time};
 use itertools::Itertools;
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
-use std::{fs, io};
 use std::io::{Read, Write};
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::{fs, io};
 
 use git2::build::TreeUpdateBuilder;
 use rayon::prelude::*;
@@ -29,7 +29,7 @@ pub struct CommitMessage {
     pub path: PathBuf,
 }
 
-static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"), );
+pub static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Result<()> {
     git2::opts::strict_object_creation(false);
@@ -76,24 +76,20 @@ pub fn run_multiple(repo_path: &PathBuf, jobs: Vec<DownloadJob>) -> anyhow::Resu
                 Err(ureq::Error::Status(416, _)) => return Ok(None),
                 Err(e) => Err(e.into()),
             }
-                .with_context(|| format!("Error fetching URL {}", url))?;
+            .with_context(|| format!("Error fetching URL {}", url))?;
 
             let mut data = match response.header("Content-Length") {
                 None => {
                     vec![]
                 }
-                Some(v) => {
-                    Vec::with_capacity(v.parse()?)
-                }
+                Some(v) => Vec::with_capacity(v.parse()?),
             };
 
             match response.into_reader().read_to_end(&mut data) {
-                Ok(_) => {
-                    return Ok(Some(data))
-                }
+                Ok(_) => return Ok(Some(data)),
                 Err(e) => {
                     warn!("{url} failed: {e}");
-                    continue
+                    continue;
                 }
             }
         }
@@ -256,14 +252,14 @@ pub fn commit<'a>(
         "tom@tomforb.es",
         &Time::new(info.uploaded_on.timestamp(), 0),
     )
-        .unwrap();
+    .unwrap();
     let commit_message = serde_json::to_string(&CommitMessage {
         name: info.name.clone(),
         version: info.version.clone(),
         file: filename.to_string(),
         path: code_path.into(),
     })
-        .unwrap();
+    .unwrap();
     let tree = repo.find_tree(tree_oid).unwrap();
     let oid = repo
         .commit(None, &signature, &signature, &commit_message, &tree, &[])

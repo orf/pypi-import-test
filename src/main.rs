@@ -4,11 +4,11 @@ mod archive;
 mod combine;
 mod create_urls;
 mod file_inspection;
+mod gitub;
 mod inspect;
 mod job;
-mod utils;
 mod scanner;
-mod create_index;
+mod utils;
 
 use std::fs;
 use std::fs::File;
@@ -59,18 +59,16 @@ enum RunType {
         #[arg()]
         repos: Vec<PathBuf>,
     },
-    CreateIndex {
+    CreateRepository {
         #[arg()]
-        repo: PathBuf,
-        #[arg()]
-        repo_url: Url,
+        name: String,
     },
     Scan {
         #[arg()]
         repo: PathBuf,
         #[arg()]
-        cmd: String
-    }
+        cmd: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -118,9 +116,7 @@ fn main() -> anyhow::Result<()> {
             // let repos = repos.into_iter().map(|v| fs::canonicalize(v).unwrap()).collect();
             combine::merge_all_branches(into, repos)?;
         }
-        RunType::CreateIndex { repo, repo_url} => {
-            create_index::create_index(repo, repo_url)?;
-        }
+        RunType::CreateRepository { name } => gitub::create_repository(name)?,
         RunType::Scan { repo, cmd } => {
             // scanner::scan(repo, cmd)?;
         }

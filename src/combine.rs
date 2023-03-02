@@ -1,4 +1,6 @@
 use git2::{Mempack, ObjectType, Oid, Repository};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 
 use std::fs;
 use std::io::Write;
@@ -7,16 +9,27 @@ use crate::job::CommitMessage;
 use crate::utils::log_timer;
 use anyhow::Context;
 
-
+use chrono::prelude::*;
 use indicatif::{ProgressBar, ProgressIterator};
-use itertools::{Itertools};
-use std::path::{PathBuf};
-use std::time::Duration;
+use itertools::Itertools;
 use log::warn;
+use std::path::PathBuf;
+use std::time::Duration;
+use tinytemplate::TinyTemplate;
+use url::Url;
+
+#[derive(serde::Serialize)]
+pub struct IndexEntry {
+    pub name: String,
+    pub version: String,
+    pub path: PathBuf,
+    pub uploaded_on: DateTime<Utc>,
+}
 
 const FILE_MODE_TREE: i32 = 0o040000;
 
 pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Result<()> {
+    let repository_partition_index = into.file_name().unwrap().to_str().unwrap();
     git2::opts::strict_object_creation(false);
     git2::opts::strict_hash_verification(false);
     git2::opts::enable_caching(false);
@@ -26,7 +39,6 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     // Ensure repos are sorted so that tags are somewhat deterministic
     repos.sort();
-
 
     // Step 1: Create a branch in each target repo and copy the data. this is faster than using a remote.
     for (_idx, repo_path) in repos.iter().enumerate() {
@@ -55,7 +67,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         }
     }
 
-    std::process::Command::new("git").current_dir(target_repo.path()).args(&["repack", "-k", "-a", "-d", "--window=5", "--depth=20", "--write-bitmap-index", "--threads=1"]).status().unwrap();
+    // std::process::Command::new("git").current_dir(target_repo.path()).args(&["repack", "-k", "-a", "-d", "--window=5", "--depth=20", "--write-bitmap-index", "--threads=1"]).status().unwrap();
 
     let odb = target_repo.odb()?;
 
@@ -76,15 +88,24 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     let total_commits = commits.len();
 
+    let mut packages_index: HashMap<String, Vec<_>> = HashMap::new();
+
     println!("reset refs/heads/import");
 
-    for (idx, commit) in commits.into_iter().enumerate() {
-        let idx = idx + 1;
+    let mut current_mark = 0;
+
+    for commit in commits.into_iter() {
+        current_mark += 1;
         let commit_message = commit.message().unwrap();
         let mut message: CommitMessage = serde_json::from_str(commit_message)
             .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
-
-        let (root, package_name, upload_name) = message.path.components().map(|c| c.as_os_str().to_str().unwrap()).collect_tuple().unwrap();
+        eprintln!("{}", message.path.display());
+        let (root, package_name, upload_name) = message
+            .path
+            .components()
+            .map(|c| c.as_os_str().to_str().unwrap())
+            .collect_tuple()
+            .unwrap();
         message.path = PathBuf::new().join(package_name).join(&upload_name);
         let commit_message = serde_json::to_string(&message).unwrap();
         // commit refs/heads/main
@@ -99,22 +120,135 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         let author = commit.author();
 
         println!("commit refs/heads/import");
-        println!("mark :{idx}");
-        println!("author {} <{}> {} +0000", author.name().unwrap(), author.email().unwrap(), commit.time().seconds());
-        println!("committer {} <{}> {} +0000", author.name().unwrap(), author.email().unwrap(), commit.time().seconds());
+        println!("mark :{current_mark}");
+        println!(
+            "author {} <{}> {} +0000",
+            author.name().unwrap(),
+            author.email().unwrap(),
+            commit.time().seconds()
+        );
+        println!(
+            "committer {} <{}> {} +0000",
+            author.name().unwrap(),
+            author.email().unwrap(),
+            commit.time().seconds()
+        );
         println!("data {}", commit_message.len());
         print!("{}\n", commit_message);
-        if idx > 1 {
-            println!("from :{}", idx - 1);
+        if current_mark > 1 {
+            println!("from :{}", current_mark - 1);
         }
         println!("M 040000 {} {}", commit.tree_id(), message.path.display());
         println!();
 
-        if (idx % 10_000) == 0 {
-            println!("progress {idx}/{total_commits}");
+        if (current_mark % 10_000) == 0 {
+            println!("progress {current_mark}/{total_commits}");
             println!();
         }
+
+        let time = DateTime::<Utc>::from_utc(
+            NaiveDateTime::from_timestamp_opt(commit.time().seconds(), 0).unwrap(),
+            Utc,
+        );
+        let entry = IndexEntry {
+            name: message.name,
+            version: message.version,
+            path: message.path,
+            uploaded_on: time,
+        };
+
+        match packages_index.entry(entry.name.to_string()) {
+            Entry::Occupied(e) => e.into_mut().push(entry),
+            Entry::Vacant(e) => {
+                e.insert(vec![entry]);
+            }
+        }
     }
+
+    let total_projects = packages_index.len();
+    let total_releases = packages_index.values().flatten().count();
+    let (min_release_time, max_release_time) = packages_index
+        .values()
+        .flatten()
+        .map(|e| e.uploaded_on)
+        .minmax()
+        .into_option()
+        .unwrap();
+    let top_projects_by_count = packages_index
+        .iter()
+        .map(|(name, items)| (name, items.len()))
+        .sorted_by(|v1, v2| v1.1.cmp(&v2.1).reverse())
+        .take(25)
+        .collect();
+
+    #[derive(serde::Serialize)]
+    struct Context<'a> {
+        first_release: NaiveDate,
+        last_release: NaiveDate,
+        total_projects: usize,
+        total_releases: usize,
+        table: Vec<(&'a String, usize)>,
+        repo_url: Url,
+    }
+
+    let mut tt = TinyTemplate::new();
+    tt.add_template("readme", include_str!("index_template.md"))?;
+    let readme = tt.render(
+        "readme",
+        &Context {
+            first_release: min_release_time.date_naive(),
+            last_release: max_release_time.date_naive(),
+            total_projects,
+            total_releases,
+            repo_url: format!(
+                "https://github.com/pypi-data/pypi-code-{repository_partition_index}"
+            )
+            .parse()?,
+            table: top_projects_by_count,
+        },
+    )?;
+    let index_json = serde_json::to_string(&packages_index).unwrap();
+
+    println!("reset refs/heads/main");
+
+    current_mark += 1;
+    // Add the README
+    println!("blob");
+    println!("mark :{current_mark}");
+    println!("data {}", readme.len());
+    println!("{readme}");
+    let readme_mark = current_mark;
+
+    // Add the index.json
+    println!("blob");
+    println!("mark :{current_mark}");
+    println!("data {}", index_json.len());
+    println!("{index_json}");
+    let index_json_mark = current_mark;
+
+    println!("commit refs/heads/main");
+    println!(
+        "author Tom Forbes <tom@tomforb.es> {} +0000",
+        max_release_time.timestamp()
+    );
+    println!(
+        "committer Tom Forbes <tom@tomforb.es> {} +0000",
+        max_release_time.timestamp()
+    );
+
+    let commit_message = format!(
+        "Import from {} to {}",
+        min_release_time.date_naive(),
+        max_release_time.date_naive()
+    );
+
+    println!("data {}", commit_message.len());
+    print!("{}\n", commit_message);
+    println!("M 100644 :{} {}", readme_mark, "README.md");
+    println!("M 100644 :{} {}", index_json_mark, "index.json");
+    println!();
+
+    println!("done");
 
     Ok(())
 }

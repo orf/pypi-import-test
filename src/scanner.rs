@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ScanJob {
@@ -14,7 +14,4 @@ pub struct ScanJob {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ScanResult(serde_json::Value);
 
-
-pub fn scan(repo: &PathBuf, cmd: String) {
-
-}
+pub fn scan(repo: &PathBuf, cmd: String) {}

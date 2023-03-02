@@ -23,7 +23,7 @@ rayon = "1.6.1"
 itertools = "0.10.5"
 crossbeam = "0.8.2"
 rand = "0.8.5"
-ureq = { version = "2.6.2" }
+ureq = { version = "2.6.2", features = ["json"] }
 chrono = { version = "0.4.23", features = ["serde"] }
 log = { version = "0.4.17", features=["release_max_level_info"]}
 env_logger = "0.10.0"
