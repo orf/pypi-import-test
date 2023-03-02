@@ -67,7 +67,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         }
     }
 
-    // std::process::Command::new("git").current_dir(target_repo.path()).args(&["repack", "-k", "-a", "-d", "--window=5", "--depth=20", "--write-bitmap-index", "--threads=1"]).status().unwrap();
+    std::process::Command::new("git").current_dir(target_repo.path()).args(&["repack", "-k", "-a", "-d", "--window=5", "--depth=20", "--write-bitmap-index", "--threads=1"]).status().unwrap();
 
     let odb = target_repo.odb()?;
 
