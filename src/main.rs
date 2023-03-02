@@ -61,7 +61,7 @@ enum RunType {
     },
     CreateRepository {
         #[arg()]
-        name: String,
+        name: PathBuf,
     },
     Scan {
         #[arg()]
