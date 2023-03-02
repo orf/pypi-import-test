@@ -99,7 +99,6 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         let commit_message = commit.message().unwrap();
         let mut message: CommitMessage = serde_json::from_str(commit_message)
             .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
-        eprintln!("{}", message.path.display());
         let (root, package_name, upload_name) = message
             .path
             .components()
