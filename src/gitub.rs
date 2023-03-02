@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{env, fs};
 use std::path::PathBuf;
 use anyhow::Context;
-use git2::{BranchType, Repository};
+use git2::{BranchType, Error, ErrorCode, Remote, Repository};
 use crate::combine::JsonIndex;
 
 #[derive(Debug, Serialize)]
@@ -48,7 +48,13 @@ pub fn create_repository(repo_path: PathBuf) -> anyhow::Result<()> {
 
     let created_repo: CreatedRepo = response.into_json()?;
 
-    repo.remote("origin", &created_repo.ssh_url)?;
+    match repo.remote("origin", &created_repo.ssh_url) {
+        Ok(_) => {},
+        Err(e) if e.code() == ErrorCode::Exists => {},
+        Err(e) => {
+            return Err(e.into())
+        }
+    };
 
     Ok(())
 }
