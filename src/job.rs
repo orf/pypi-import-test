@@ -21,11 +21,11 @@ use rayon::prelude::*;
 use ureq::Agent;
 use url::Url;
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CommitMessage<'a> {
-    pub name: &'a str,
-    pub version: &'a str,
-    pub file: &'a str,
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CommitMessage {
+    pub name: String,
+    pub version: String,
+    pub file: String,
     pub path: PathBuf,
 }
 
@@ -258,9 +258,9 @@ pub fn commit<'a>(
     )
         .unwrap();
     let commit_message = serde_json::to_string(&CommitMessage {
-        name: &info.name,
-        version: &info.version,
-        file: filename,
+        name: info.name.clone(),
+        version: info.version.clone(),
+        file: filename.to_string(),
         path: code_path.into(),
     })
         .unwrap();

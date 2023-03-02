@@ -29,6 +29,7 @@ log = { version = "0.4.17", features=["release_max_level_info"]}
 env_logger = "0.10.0"
 indicatif = {version="0.17.3", features=["rayon"]}
 fs_extra = "1.3.0"
+tinytemplate = "1.2.1"
 # This commit is the only one that works?
 #libcst = { git = "https://github.com/Instagram/LibCST", rev = "f9536b522f58d2b70ae8beb6b607b45ef08620e6", package = "libcst" }
 #rustpython-parser = { features = ["lalrpop"], git = "https://github.com/orf/RustPython.git", branch = "serde" }

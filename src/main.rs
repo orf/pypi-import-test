@@ -7,6 +7,8 @@ mod file_inspection;
 mod inspect;
 mod job;
 mod utils;
+mod scanner;
+mod create_index;
 
 use std::fs;
 use std::fs::File;
@@ -16,6 +18,7 @@ use clap::Parser;
 
 use anyhow::Context;
 use std::path::PathBuf;
+use url::Url;
 
 use crate::create_urls::DownloadJob;
 
@@ -31,13 +34,10 @@ enum RunType {
     FromJson {
         #[arg()]
         input_file: PathBuf,
-
         #[arg()]
         work_dir: PathBuf,
-
         #[arg()]
         finished_dir: PathBuf,
-
         #[arg()]
         template: PathBuf,
     },
@@ -59,14 +59,18 @@ enum RunType {
         #[arg()]
         repos: Vec<PathBuf>,
     },
-    ParseFile {
-        #[arg()]
-        file: PathBuf,
-    },
-    ReadIndex {
+    CreateIndex {
         #[arg()]
         repo: PathBuf,
+        #[arg()]
+        repo_url: Url,
     },
+    Scan {
+        #[arg()]
+        repo: PathBuf,
+        #[arg()]
+        cmd: String
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -108,19 +112,17 @@ fn main() -> anyhow::Result<()> {
             find,
             split,
         } => create_urls::extract_urls(data, output_dir, limit, find, split),
-        RunType::ParseFile { .. } => {
-            // inspect::parse_file(file)
-        }
-        RunType::ReadIndex { .. } => {
-            // inspect::parse(repo);
-            // let x = inspect::parse_index(repo);
-            // println!("Total: {}", x);
-        }
         RunType::MergeBranches { into, repos } => {
             // let into = fs::canonicalize(into)?;
             // To-do: handle errors here
             // let repos = repos.into_iter().map(|v| fs::canonicalize(v).unwrap()).collect();
             combine::merge_all_branches(into, repos)?;
+        }
+        RunType::CreateIndex { repo, repo_url} => {
+            create_index::create_index(repo, repo_url)?;
+        }
+        RunType::Scan { repo, cmd } => {
+            // scanner::scan(repo, cmd)?;
         }
     }
     Ok(())

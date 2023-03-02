@@ -81,11 +81,12 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     for (idx, commit) in commits.into_iter().enumerate() {
         let idx = idx + 1;
         let commit_message = commit.message().unwrap();
-        let message: CommitMessage = serde_json::from_str(commit_message)
+        let mut message: CommitMessage = serde_json::from_str(commit_message)
             .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
 
         let (root, package_name, upload_name) = message.path.components().map(|c| c.as_os_str().to_str().unwrap()).collect_tuple().unwrap();
-
+        message.path = PathBuf::new().join(package_name).join(&upload_name);
+        let commit_message = serde_json::to_string(&message).unwrap();
         // commit refs/heads/main
         // mark :2
         // author Tom Forbes <tom@tomforb.es> 1673443596 +0000
@@ -106,7 +107,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         if idx > 1 {
             println!("from :{}", idx - 1);
         }
-        println!("M 040000 {} {}/{}", commit.tree_id(), package_name, upload_name);
+        println!("M 040000 {} {}", commit.tree_id(), message.path.display());
         println!();
 
         if (idx % 10_000) == 0 {
