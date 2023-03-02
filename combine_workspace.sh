@@ -9,7 +9,7 @@ export PROCESSES="$3"
 export RUST_LOG=warn
 
 export RAYON_NUM_THREADS="25"
-fd -a . "$TARGET_DIR" | sort | parallel -u --progress --eta --xargs -N5 -P"$PROCESSES" -I@ "./combine_single.sh $COMBINED_DIR/{#} @"
+fd -a . "$TARGET_DIR" | sort | parallel -u --progress --eta --xargs -N5 -P"$PROCESSES" -I@ "./combine_single.sh $COMBINED_DIR/{#} @ 2>&1"
 
 #
 #export COMBINED_DIR="$1"
