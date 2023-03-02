@@ -38,7 +38,7 @@ pub fn create_repository(repo_path: PathBuf) -> anyhow::Result<()> {
     let args = NewRepo {
         name: repo_name.to_string(),
         description: format!("PyPi code from {} to {}", index_json.earliest_release.date_naive(), index_json.latest_release.date_naive()),
-        private: true,
+        private: false,
     };
     // Send the API request to create the new repository
     let response = ureq::post(&url)
