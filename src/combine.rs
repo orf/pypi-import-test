@@ -258,8 +258,8 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     println!("data {}", commit_message.len());
     print!("{}\n", commit_message);
-    println!("M 100644 :{} {}", readme_mark, "README.md");
-    println!("M 100644 :{} {}", index_json_mark, "index.json");
+    println!("M 100644 :{} README.md", readme_mark);
+    println!("M 100644 :{} index.json", index_json_mark);
     println!();
 
     println!("done");
