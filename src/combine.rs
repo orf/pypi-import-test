@@ -224,8 +224,8 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
 
     println!("reset refs/heads/main");
 
-    current_mark += 1;
     // Add the README
+    current_mark += 1;
     println!("blob");
     println!("mark :{current_mark}");
     println!("data {}", readme.len());
@@ -233,6 +233,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     let readme_mark = current_mark;
 
     // Add the index.json
+    current_mark += 1;
     println!("blob");
     println!("mark :{current_mark}");
     println!("data {}", index_json.len());
