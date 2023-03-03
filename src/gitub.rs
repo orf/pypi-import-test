@@ -42,21 +42,22 @@ pub fn create_repository(repo_path: PathBuf) -> anyhow::Result<()> {
         private: false,
     };
 
-    let created_repo = match create_repo(&args, &token) {
-        Ok(r) => r,
+    match create_repo(&args, &token) {
+        Ok(created_repo) => {
+            match repo.remote("origin", &created_repo.ssh_url) {
+                Ok(_) => {}
+                Err(e) if e.code() == ErrorCode::Exists => {}
+                Err(e) => {
+                    return Err(e.into());
+                }
+            };
+
+        }
         Err(CreateRepoError::AlreadyExists) => {
             delete_repo(&args.name, &token)?;
-            create_repo(&args, &token)?
+            create_repo(&args, &token)?;
         }
         Err(e) => return Err(e.into()),
-    };
-
-    match repo.remote("origin", &created_repo.ssh_url) {
-        Ok(_) => {}
-        Err(e) if e.code() == ErrorCode::Exists => {}
-        Err(e) => {
-            return Err(e.into());
-        }
     };
 
     Ok(())
@@ -98,10 +99,10 @@ pub fn create_repo(repo: &NewRepo, token: &String) -> Result<CreatedRepo, Create
                 response.into_json().map_err(CreateRepoError::DecodeError)?;
             Ok(created_repo)
         }
-        Err(ureq::Error::Status(422, response)) => Err(CreateRepoError::AlreadyExists),
+        Err(ureq::Error::Status(422, _)) => Err(CreateRepoError::AlreadyExists),
         Err(ureq::Error::Status(status, response)) => {
             Err(CreateRepoError::Status(status, response.into_string().unwrap()))
-        },
+        }
         Err(e) => Err(CreateRepoError::Other(e.into())),
     }
 }
