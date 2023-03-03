@@ -1,20 +1,19 @@
-use git2::{Mempack, ObjectType, Oid, Repository};
+use git2::{ObjectType, Repository};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use std::fs;
-use std::io::Write;
 
 use crate::job::CommitMessage;
-use crate::utils::log_timer;
+
 use anyhow::Context;
 
 use chrono::prelude::*;
-use indicatif::{ProgressBar, ProgressIterator};
+
 use itertools::Itertools;
 use log::warn;
 use std::path::PathBuf;
-use std::time::Duration;
+
 use tinytemplate::TinyTemplate;
 use url::Url;
 
@@ -75,7 +74,20 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         }
     }
 
-    std::process::Command::new("git").current_dir(target_repo.path()).args(&["repack", "-k", "-a", "-d", "--window=5", "--depth=20", "--write-bitmap-index", "--threads=1"]).status().unwrap();
+    std::process::Command::new("git")
+        .current_dir(target_repo.path())
+        .args([
+            "repack",
+            "-k",
+            "-a",
+            "-d",
+            "--window=5",
+            "--depth=20",
+            "--write-bitmap-index",
+            "--threads=1",
+        ])
+        .status()
+        .unwrap();
 
     let odb = target_repo.odb()?;
 
@@ -107,13 +119,13 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         let commit_message = commit.message().unwrap();
         let mut message: CommitMessage = serde_json::from_str(commit_message)
             .with_context(|| format!("Message: {}", commit.message().unwrap()))?;
-        let (root, package_name, upload_name) = message
+        let (_root, package_name, upload_name) = message
             .path
             .components()
             .map(|c| c.as_os_str().to_str().unwrap())
             .collect_tuple()
             .unwrap();
-        message.path = PathBuf::new().join(package_name).join(&upload_name);
+        message.path = PathBuf::new().join(package_name).join(upload_name);
         let commit_message = serde_json::to_string(&message).unwrap();
         // commit refs/heads/main
         // mark :2
@@ -141,7 +153,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
             commit.time().seconds()
         );
         println!("data {}", commit_message.len());
-        print!("{}\n", commit_message);
+        println!("{}", commit_message);
         if current_mark > 1 {
             println!("from :{}", current_mark - 1);
         }
@@ -198,9 +210,8 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         repo_url: Url,
     }
 
-    let repo_url: Url = format!(
-        "https://github.com/pypi-data/pypi-code-{repository_partition_index}"
-    ).parse()?;
+    let repo_url: Url =
+        format!("https://github.com/pypi-data/pypi-code-{repository_partition_index}").parse()?;
 
     let mut tt = TinyTemplate::new();
     tt.add_template("readme", include_str!("index_template.md"))?;
@@ -220,7 +231,8 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
         earliest_release: min_release_time,
         latest_release: max_release_time,
         entries: packages_index,
-    }).unwrap();
+    })
+    .unwrap();
 
     println!("reset refs/heads/main");
 
@@ -257,7 +269,7 @@ pub fn merge_all_branches(into: PathBuf, mut repos: Vec<PathBuf>) -> anyhow::Res
     );
 
     println!("data {}", commit_message.len());
-    print!("{}\n", commit_message);
+    println!("{}", commit_message);
     println!("M 100644 :{} README.md", readme_mark);
     println!("M 100644 :{} index.json", index_json_mark);
     println!();

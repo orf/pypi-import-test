@@ -14,4 +14,4 @@ pub struct ScanJob {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ScanResult(serde_json::Value);
 
-pub fn scan(repo: &PathBuf, cmd: String) {}
+pub fn scan(_repo: &PathBuf, _cmd: String) {}

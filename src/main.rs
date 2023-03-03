@@ -18,7 +18,6 @@ use clap::Parser;
 
 use anyhow::Context;
 use std::path::PathBuf;
-use url::Url;
 
 use crate::create_urls::DownloadJob;
 
@@ -117,7 +116,7 @@ fn main() -> anyhow::Result<()> {
             combine::merge_all_branches(into, repos)?;
         }
         RunType::CreateRepository { name } => gitub::create_repository(name)?,
-        RunType::Scan { repo, cmd } => {
+        RunType::Scan { repo: _, cmd: _ } => {
             // scanner::scan(repo, cmd)?;
         }
     }
