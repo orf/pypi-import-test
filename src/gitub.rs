@@ -25,8 +25,6 @@ pub fn create_repository(repo_path: PathBuf) -> anyhow::Result<()> {
 
     let index_json = fs::read_to_string(repo_path.join("index.json"))?;
     let index_json: JsonIndex = serde_json::from_str(&index_json)?;
-
-    // let repo_name = format!("pypi-code-{}", repo_path.file_name().unwrap().to_str().unwrap());
     let repo_name = index_json.url.path().split('/').last().unwrap();
 
     // Get the GitHub token from the environment variable
