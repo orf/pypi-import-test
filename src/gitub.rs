@@ -79,6 +79,8 @@ pub enum CreateRepoError {
     AlreadyExists,
     #[error("Decode Error: {0}")]
     DecodeError(#[from] io::Error),
+    #[error("Status: {0}: {1}")]
+    Status(u16, String),
     #[error("Error: {0}")]
     Other(#[from] anyhow::Error),
 }
@@ -96,7 +98,10 @@ pub fn create_repo(repo: &NewRepo, token: &String) -> Result<CreatedRepo, Create
                 response.into_json().map_err(CreateRepoError::DecodeError)?;
             Ok(created_repo)
         }
-        Err(ureq::Error::Status(422, _)) => Err(CreateRepoError::AlreadyExists),
+        Err(ureq::Error::Status(422, response)) => Err(CreateRepoError::AlreadyExists),
+        Err(ureq::Error::Status(status, response)) => {
+            Err(CreateRepoError::Status(status, response.into_string().unwrap()))
+        },
         Err(e) => Err(CreateRepoError::Other(e.into())),
     }
 }
