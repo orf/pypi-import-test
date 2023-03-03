@@ -42,42 +42,52 @@ pub fn create_repository(repo_path: PathBuf) -> anyhow::Result<()> {
         private: false,
     };
 
-    match create_repo(&args, &token) {
-        Ok(created_repo) => {
-            match repo.remote("origin", &created_repo.ssh_url) {
-                Ok(_) => {}
-                Err(e) if e.code() == ErrorCode::Exists => {}
-                Err(e) => {
-                    return Err(e.into());
-                }
-            };
+    let github_repo = match get_repo(&args.name, &token) {
+        Ok(r) => r,
+        Err(APIError::DoesNotExist) => {
+            create_repo(&args, &token)?
+        }
+        Err(e) => {
+            return Err(e.into());
+        }
+    };
 
+    match repo.remote("origin", &github_repo.ssh_url) {
+        Ok(_) => {}
+        Err(e) if e.code() == ErrorCode::Exists => {}
+        Err(e) => {
+            return Err(e.into());
         }
-        Err(CreateRepoError::AlreadyExists) => {
-            delete_repo(&args.name, &token)?;
-            create_repo(&args, &token)?;
-        }
-        Err(e) => return Err(e.into()),
     };
 
     Ok(())
 }
 
-pub fn delete_repo(name: &String, token: &String) -> anyhow::Result<()> {
+pub fn get_repo(name: &String, token: &String) -> Result<CreatedRepo, APIError> {
     let org = "pypi-data";
     let url = format!("https://api.github.com/repos/{}/{}", org, name);
-    ureq::delete(&url)
+    let response = match ureq::get(&url)
         .set("User-Agent", APP_USER_AGENT)
         .set("Authorization", &format!("token {token}"))
-        .call()?;
+        .call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(404, _)) => {
+            return Err(APIError::DoesNotExist);
+        }
+        Err(e) => return Err(APIError::Other(e.into())),
+    };
 
-    Ok(())
+    let repo: CreatedRepo = response.into_json().map_err(APIError::DecodeError)?;
+
+    Ok(repo)
 }
 
 #[derive(Error, Debug)]
-pub enum CreateRepoError {
+pub enum APIError {
     #[error("Repo already exists")]
     AlreadyExists,
+    #[error("Repo does not exist")]
+    DoesNotExist,
     #[error("Decode Error: {0}")]
     DecodeError(#[from] io::Error),
     #[error("Status: {0}: {1}")]
@@ -86,7 +96,7 @@ pub enum CreateRepoError {
     Other(#[from] anyhow::Error),
 }
 
-pub fn create_repo(repo: &NewRepo, token: &String) -> Result<CreatedRepo, CreateRepoError> {
+pub fn create_repo(repo: &NewRepo, token: &String) -> Result<CreatedRepo, APIError> {
     let org = "pypi-data";
     let url = format!("https://api.github.com/orgs/{}/repos", org);
     match ureq::post(&url)
@@ -96,17 +106,17 @@ pub fn create_repo(repo: &NewRepo, token: &String) -> Result<CreatedRepo, Create
     {
         Ok(response) => {
             let created_repo: CreatedRepo =
-                response.into_json().map_err(CreateRepoError::DecodeError)?;
+                response.into_json().map_err(APIError::DecodeError)?;
             Ok(created_repo)
         }
-        Err(ureq::Error::Status(422, _)) => Err(CreateRepoError::AlreadyExists),
+        Err(ureq::Error::Status(422, _)) => Err(APIError::AlreadyExists),
         Err(ureq::Error::Status(status, response)) => {
             let retry_after = response.header("retry-after").map(|c| c.to_string());
             let reset = response.header("x-ratelimit-reset").map(|c| c.to_string());
             let response_text = response.into_string().unwrap();
             let resp = format!("Retry: {:?} Reset: {:?}, Body: {response_text}", retry_after, reset);
-            Err(CreateRepoError::Status(status, resp))
+            Err(APIError::Status(status, resp))
         }
-        Err(e) => Err(CreateRepoError::Other(e.into())),
+        Err(e) => Err(APIError::Other(e.into())),
     }
 }
