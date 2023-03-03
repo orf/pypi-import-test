@@ -101,8 +101,8 @@ pub fn create_repo(repo: &NewRepo, token: &String) -> Result<CreatedRepo, Create
         }
         Err(ureq::Error::Status(422, _)) => Err(CreateRepoError::AlreadyExists),
         Err(ureq::Error::Status(status, response)) => {
-            let retry_after = response.header("retry-after");
-            let reset = response.header("x-ratelimit-reset");
+            let retry_after = response.header("retry-after").map(|c| c.to_string());
+            let reset = response.header("x-ratelimit-reset").map(|c| c.to_string());
             let response_text = response.into_string().unwrap();
             let resp = format!("Retry: {:?} Reset: {:?}, Body: {response_text}", retry_after, reset);
             Err(CreateRepoError::Status(status, resp))
