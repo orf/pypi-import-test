@@ -74,6 +74,13 @@ pub fn get_repo(name: &String, token: &String) -> Result<CreatedRepo, APIError> 
         Err(ureq::Error::Status(404, _)) => {
             return Err(APIError::DoesNotExist);
         }
+        Err(ureq::Error::Status(status, response)) => {
+            let retry_after = response.header("retry-after").map(|c| c.to_string());
+            let reset = response.header("x-ratelimit-reset").map(|c| c.to_string());
+            let response_text = response.into_string().unwrap();
+            let resp = format!("Retry: {:?} Reset: {:?}, Body: {response_text}", retry_after, reset);
+            return Err(APIError::Status(status, resp))
+        }
         Err(e) => return Err(APIError::Other(e.into())),
     };
 
